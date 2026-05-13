@@ -100,11 +100,11 @@ Done:
     mov rax, 0x3c               # put the exit syscall number in eax
     syscall                     # Call it a good day
 
-header_string1: .asciz "\n# Core program\n"
-header_string2: .asciz "\n:ELF_data\n"
-header_string3: .asciz "\n# Program global variables\n"
+header_string1: .asciz "\n.text\n# Core program\n"
+header_string2: .asciz "\nELF_data:\n"
+header_string3: .asciz "\n.data\n# Program global variables\n"
 header_string4: .asciz "\n# Program strings\n"
-header_string5: .asciz "\n:ELF_end\n"
+header_string5: .asciz "\nELF_end:\n"
 
 
 # Resolve relative addresses in types struct to absolute
@@ -800,8 +800,8 @@ program_done:
     ret
 
 # Strings needed by the program function
-program_string_0: .asciz ":GLOBAL_"
-program_string_1: .asciz "\nNULL\n"
+program_string_0: .asciz "GLOBAL_"
+program_string_1: .asciz ":\n.quad 0\n"
 
 
 # declare_function function
@@ -875,9 +875,9 @@ declare_function_done:
     ret
 
 declare_function_string_0: .asciz "# Defining function "
-declare_function_string_1: .asciz "\n:FUNCTION_"
+declare_function_string_1: .asciz "\nFUNCTION_"
 declare_function_string_2: .asciz "ret\n"
-declare_function_string_3: .byte 10, 0
+declare_function_string_3: .asciz ":\n"
 
 
 # collect_arguments function
@@ -1002,9 +1002,10 @@ statement_label:
 
     # deal with labels
     mov rax, rbx                # put global_token->S in the right spot
+    add rax, 1                  # skip leading ':' for GAS labels
     call emit_out               # emit it
 
-    lea rax, [rip+statement_string_0] # Using "\t#C goto label\n"
+    lea rax, [rip+statement_string_0] # Using ":\t#C goto label\n"
     call emit_out               # emit it
 
     mov rax, [rip+global_token] # Using global_token
@@ -1088,7 +1089,7 @@ statement_goto:
     jne statement_return        # Otherwise try RETURN
 
     # Deal with GOTO statement
-    lea rax, [rip+statement_string_1] # Using "jmp %"
+    lea rax, [rip+statement_string_1] # Using "jmp "
     call emit_out               # emit it
 
     mov rax, [rip+global_token] # Using global_token
@@ -1160,8 +1161,8 @@ statement_done:
     pop rbx                     # Restore RBX
     ret
 
-statement_string_0: .asciz "\t#C goto label\n"
-statement_string_1: .asciz "jmp %"
+statement_string_0: .asciz ":\t#C goto label\n"
+statement_string_1: .asciz "jmp "
 statement_string_2: .byte 10, 0
 statement_string_3: .asciz "\n#continue statement\n"
 statement_string_4: .asciz "ERROR in statement\nMissing ;\n"
@@ -1210,7 +1211,7 @@ recursive_statement_cleanup:
     # Deal with cleanup
     mov rbx, [rip+function]     # Using function
     mov rbx, [rbx+8]            # i = function->locals
-    lea rax, [rip+recursive_statement_string_1] # Using "pop_rbx\t# _recursive_statement_locals\n"
+    lea rax, [rip+recursive_statement_string_1] # Using "pop rbx\t# _recursive_statement_locals\n"
 
 recursive_statement_locals:
     cmp rbx, rcx                # IF frame != i
@@ -1229,7 +1230,7 @@ recursive_statement_done:
     ret
 
 recursive_statement_string_0: .asciz "ret\n"
-recursive_statement_string_1: .asciz "pop_rbx\t# _recursive_statement_locals\n"
+recursive_statement_string_1: .asciz "pop rbx\t# _recursive_statement_locals\n"
 
 
 # return_result function
@@ -1259,7 +1260,7 @@ return_result_cleanup:
 
     mov rbx, [rip+function]     # Using function
     mov rbx, [rbx+8]            # function->locals
-    lea rax, [rip+return_result_string_1] # Using "pop_rbx\t# _return_result_locals\n"
+    lea rax, [rip+return_result_string_1] # Using "pop rbx\t# _return_result_locals\n"
 return_result_locals:
     cmp rbx, 0                  # IF NULL == i
     je return_result_done       # Be done
@@ -1276,7 +1277,7 @@ return_result_done:
     ret
 
 return_result_string_0: .asciz "ERROR in return_result\nMISSING ;\n"
-return_result_string_1: .asciz "pop_rbx\t# _return_result_locals\n"
+return_result_string_1: .asciz "pop rbx\t# _return_result_locals\n"
 return_result_string_2: .asciz "ret\n"
 
 
@@ -1393,7 +1394,7 @@ collect_local_done:
     lea rbx, [rip+semicolon]    # Using ";"
     call require_match          # Make sure we have it
 
-    lea rax, [rip+collect_local_string_3] # Using "push_rax\t#"
+    lea rax, [rip+collect_local_string_3] # Using "push rax\t#"
     call emit_out               # emit it
 
     mov rax, rcx                # put A->S where it belongs
@@ -1409,7 +1410,7 @@ collect_local_done:
 collect_local_string_0: .asciz "# Defining local "
 collect_local_string_1: .byte 10, 0
 collect_local_string_2: .asciz "ERROR in collect_local\nMissing ;\n"
-collect_local_string_3: .asciz "push_rax\t#"
+collect_local_string_3: .asciz "push rax\t#"
 
 
 # process_asm function
@@ -1497,7 +1498,7 @@ process_if:
 
     call expression             # Recurse to get the IF(...) part
 
-    lea rax, [rip+process_if_string_2] # Using "test_rax,rax\nje %ELSE_"
+    lea rax, [rip+process_if_string_2] # Using "test rax, rax\nje ELSE_"
     call emit_out               # Emit it
 
     mov rax, [rip+function]     # Using function
@@ -1511,7 +1512,7 @@ process_if:
 
     call statement              # Recursive to get the IF(){...} part
 
-    lea rax, [rip+process_if_string_4] # Using "jmp %_END_IF_"
+    lea rax, [rip+process_if_string_4] # Using "jmp _END_IF_"
     call emit_out               # Emit it
 
     mov rax, [rip+function]     # Using function
@@ -1519,12 +1520,12 @@ process_if:
     mov rbx, rcx                # Passing NUMBER_STRING
     call uniqueID_out           # uniqueID_out(function->s, number_string)
 
-    lea rax, [rip+process_if_string_5] # Using ":ELSE_"
+    lea rax, [rip+process_if_string_5] # Using "ELSE_"
     call emit_out               # Emit it
 
     mov rax, [rip+function]     # Using function
     mov rax, [rax+16]           # function->S
-    call uniqueID_out           # uniqueID_out(function->s, number_string)
+    call uniqueID_label_out     # uniqueID_label_out(function->s, number_string)
 
     mov rbx, [rip+global_token] # Using global_token
     mov rbx, [rbx+16]           # global_token->S
@@ -1541,13 +1542,13 @@ process_if:
     call statement              # Recurse to get the ELSE {...} part
 
 process_if_done:
-    lea rax, [rip+process_if_string_6] # Using ":_END_IF_"
+    lea rax, [rip+process_if_string_6] # Using "_END_IF_"
     call emit_out               # Emit it
 
     mov rax, [rip+function]     # Using function
     mov rax, [rax+16]           # function->S
     mov rbx, rcx                # Passing NUMBER_STRING
-    call uniqueID_out           # uniqueID_out(function->s, number_string)
+    call uniqueID_label_out     # uniqueID_label_out(function->s, number_string)
 
     pop rcx                     # Restore RCX
     pop rbx                     # Restore RBX
@@ -1555,11 +1556,11 @@ process_if_done:
 
 process_if_string_0: .asciz "# IF_"
 process_if_string_1: .asciz "ERROR in process_if\nMISSING (\n"
-process_if_string_2: .asciz "test_rax,rax\nje %ELSE_"
+process_if_string_2: .asciz "test rax, rax\nje ELSE_"
 process_if_string_3: .asciz "ERROR in process_if\nMISSING )\n"
-process_if_string_4: .asciz "jmp %_END_IF_"
-process_if_string_5: .asciz ":ELSE_"
-process_if_string_6: .asciz ":_END_IF_"
+process_if_string_4: .asciz "jmp _END_IF_"
+process_if_string_5: .asciz "ELSE_"
+process_if_string_6: .asciz "_END_IF_"
 
 
 # save_break_frame microfunction
@@ -1634,13 +1635,13 @@ process_do:
     mov rbx, rcx                # Passing NUMBER_STRING
     call set_break_frame        # Set the frame
 
-    lea rax, [rip+process_do_string_1] # Using ":DO_"
+    lea rax, [rip+process_do_string_1] # Using "DO_"
     call emit_out               # Emit it
 
     mov rax, [rip+function]     # Using function
     mov rax, [rax+16]           # function->S
     mov rbx, rcx                # Passing NUMBER_STRING
-    call uniqueID_out           # uniqueID_out(function->s, number_string)
+    call uniqueID_label_out     # uniqueID_label_out(function->s, number_string)
 
     mov rax, [rip+global_token] # Using global_token
     mov rax, [rax]              # global_token->NEXT
@@ -1666,7 +1667,7 @@ process_do:
     lea rbx, [rip+semicolon]    # Using ";"
     call require_match          # Make sure we have it
 
-    lea rax, [rip+process_do_string_6] # Using "test_rax,rax\njne %DO_"
+    lea rax, [rip+process_do_string_6] # Using "test rax, rax\njne DO_"
     call emit_out               # Emit it
 
     mov rax, [rip+function]     # Using function
@@ -1674,12 +1675,12 @@ process_do:
     mov rbx, rcx                # Passing NUMBER_STRING
     call uniqueID_out           # uniqueID_out(function->s, number_string)
 
-    lea rax, [rip+process_do_string_7] # Using ":DO_END_"
+    lea rax, [rip+process_do_string_7] # Using "DO_END_"
     call emit_out               # Emit it
 
     mov rax, [rip+function]     # Using function
     mov rax, [rax+16]           # function->S
-    call uniqueID_out           # uniqueID_out(function->s, number_string)
+    call uniqueID_label_out     # uniqueID_label_out(function->s, number_string)
 
     call restore_break_frame    # Restore the old break frame
 
@@ -1688,13 +1689,13 @@ process_do:
     ret
 
 process_do_string_0: .asciz "DO_END_"
-process_do_string_1: .asciz ":DO_"
+process_do_string_1: .asciz "DO_"
 process_do_string_2: .asciz "ERROR in process_do\nMISSING while\n"
 process_do_string_3: .asciz "ERROR in process_do\nMISSING (\n"
 process_do_string_4: .asciz "ERROR in process_do\nMISSING )\n"
 process_do_string_5: .asciz "ERROR in process_do\nMISSING ;\n"
-process_do_string_6: .asciz "test_rax,rax\njne %DO_"
-process_do_string_7: .asciz ":DO_END_"
+process_do_string_6: .asciz "test rax, rax\njne DO_"
+process_do_string_7: .asciz "DO_END_"
 
 
 # process_while function
@@ -1718,13 +1719,13 @@ process_while:
     mov rbx, rcx                # Passing NUMBER_STRING
     call set_break_frame        # Set it and forget it
 
-    lea rax, [rip+process_while_string_1] # Using ":WHILE_"
+    lea rax, [rip+process_while_string_1] # Using "WHILE_"
     call emit_out               # Emit it
 
     mov rax, [rip+function]     # Using function
     mov rax, [rax+16]           # function->S
     mov rbx, rcx                # Passing NUMBER_STRING
-    call uniqueID_out           # uniqueID_out(function->s, number_string)
+    call uniqueID_label_out     # uniqueID_label_out(function->s, number_string)
 
     mov rax, [rip+global_token] # Using global_token
     mov rax, [rax]              # global_token->NEXT
@@ -1736,7 +1737,7 @@ process_while:
 
     call expression             # Deal with the WHILE (...) part
 
-    lea rax, [rip+process_while_string_3] # Using "test_rax,rax\nje %END_WHILE_"
+    lea rax, [rip+process_while_string_3] # Using "test rax, rax\nje END_WHILE_"
     call emit_out               # Emit it
 
     mov rax, [rip+function]     # Using function
@@ -1757,7 +1758,7 @@ process_while:
 
     call statement              # Deal with the {....} part
 
-    lea rax, [rip+process_while_string_6] # Using "jmp %WHILE_"
+    lea rax, [rip+process_while_string_6] # Using "jmp WHILE_"
     call emit_out               # Emit it
 
     mov rax, [rip+function]     # Using function
@@ -1765,12 +1766,12 @@ process_while:
     mov rbx, rcx                # Passing NUMBER_STRING
     call uniqueID_out           # uniqueID_out(function->s, number_string)
 
-    lea rax, [rip+process_while_string_7] # Using ":END_WHILE_"
+    lea rax, [rip+process_while_string_7] # Using "END_WHILE_"
     call emit_out               # Emit it
 
     mov rax, [rip+function]     # Using function
     mov rax, [rax+16]           # function->S
-    call uniqueID_out           # uniqueID_out(function->s, number_string)
+    call uniqueID_label_out     # uniqueID_label_out(function->s, number_string)
 
     call restore_break_frame    # Restore the old break frame
 
@@ -1779,13 +1780,13 @@ process_while:
     ret
 
 process_while_string_0: .asciz "END_WHILE_"
-process_while_string_1: .asciz ":WHILE_"
+process_while_string_1: .asciz "WHILE_"
 process_while_string_2: .asciz "ERROR in process_while\nMISSING (\n"
-process_while_string_3: .asciz "test_rax,rax\nje %END_WHILE_"
+process_while_string_3: .asciz "test rax, rax\nje END_WHILE_"
 process_while_string_4: .asciz "# THEN_while_"
 process_while_string_5: .asciz "ERROR in process_while\nMISSING )\n"
-process_while_string_6: .asciz "jmp %WHILE_"
-process_while_string_7: .asciz ":END_WHILE_"
+process_while_string_6: .asciz "jmp WHILE_"
+process_while_string_7: .asciz "END_WHILE_"
 
 
 # process_for function
@@ -1836,13 +1837,13 @@ process_for:
     call expression             # Get the FOR ( ... ; part
 
 process_for_terminator:
-    lea rax, [rip+process_for_string_3] # Using ":FOR_"
+    lea rax, [rip+process_for_string_3] # Using "FOR_"
     call emit_out               # Emit it
 
     mov rax, [rip+function]     # Using function
     mov rax, [rax+16]           # function->S
     mov rbx, rcx                # Passing NUMBER_STRING
-    call uniqueID_out           # uniqueID_out(function->s, number_string)
+    call uniqueID_label_out     # uniqueID_label_out(function->s, number_string)
 
     lea rax, [rip+process_for_string_4] # Using "ERROR in process_for\nMISSING ;1\n"
     lea rbx, [rip+semicolon]    # Using ";"
@@ -1850,7 +1851,7 @@ process_for_terminator:
 
     call expression             # Get the FOR ( ; ... ; Part
 
-    lea rax, [rip+process_for_string_5] # Using "test_rax,rax\nje %FOR_END_"
+    lea rax, [rip+process_for_string_5] # Using "test rax, rax\nje FOR_END_"
     call emit_out               # Emit it
 
     mov rax, [rip+function]     # Using function
@@ -1858,19 +1859,19 @@ process_for_terminator:
     mov rbx, rcx                # Passing NUMBER_STRING
     call uniqueID_out           # uniqueID_out(function->s, number_string)
 
-    lea rax, [rip+process_for_string_6] # Using "jmp %FOR_THEN_"
+    lea rax, [rip+process_for_string_6] # Using "jmp FOR_THEN_"
     call emit_out               # Emit it
 
     mov rax, [rip+function]     # Using function
     mov rax, [rax+16]           # function->S
     call uniqueID_out           # uniqueID_out(function->s, number_string)
 
-    lea rax, [rip+process_for_string_7] # Using ":FOR_ITER_"
+    lea rax, [rip+process_for_string_7] # Using "FOR_ITER_"
     call emit_out               # Emit it
 
     mov rax, [rip+function]     # Using function
     mov rax, [rax+16]           # function->S
-    call uniqueID_out           # uniqueID_out(function->s, number_string)
+    call uniqueID_label_out     # uniqueID_label_out(function->s, number_string)
 
     lea rax, [rip+process_for_string_8] # Using "ERROR in process_for\nMISSING ;2\n"
     lea rbx, [rip+semicolon]    # Using ";"
@@ -1878,7 +1879,7 @@ process_for_terminator:
 
     call expression             # Get the FOR (;;...) part
 
-    lea rax, [rip+process_for_string_9] # Using "jmp %FOR_"
+    lea rax, [rip+process_for_string_9] # Using "jmp FOR_"
     call emit_out               # Emit it
 
     mov rax, [rip+function]     # Using function
@@ -1886,12 +1887,12 @@ process_for_terminator:
     mov rbx, rcx                # Passing NUMBER_STRING
     call uniqueID_out           # uniqueID_out(function->s, number_string)
 
-    lea rax, [rip+process_for_string_10] # Using ":FOR_THEN_"
+    lea rax, [rip+process_for_string_10] # Using "FOR_THEN_"
     call emit_out               # Emit it
 
     mov rax, [rip+function]     # Using function
     mov rax, [rax+16]           # function->S
-    call uniqueID_out           # uniqueID_out(function->s, number_string)
+    call uniqueID_label_out     # uniqueID_label_out(function->s, number_string)
 
     lea rax, [rip+process_for_string_11] # Using "ERROR in process_for\nMISSING )\n"
     lea rbx, [rip+close_paren]  # Using ")"
@@ -1899,7 +1900,7 @@ process_for_terminator:
 
     call statement              # Get FOR (;;) {...} part
 
-    lea rax, [rip+process_for_string_12] # Using "jmp %FOR_ITER_"
+    lea rax, [rip+process_for_string_12] # Using "jmp FOR_ITER_"
     call emit_out               # Emit it
 
     mov rax, [rip+function]     # Using function
@@ -1907,12 +1908,12 @@ process_for_terminator:
     mov rbx, rcx                # Passing NUMBER_STRING
     call uniqueID_out           # uniqueID_out(function->s, number_string)
 
-    lea rax, [rip+process_for_string_13] # Using ":FOR_END_"
+    lea rax, [rip+process_for_string_13] # Using "FOR_END_"
     call emit_out               # Emit it
 
     mov rax, [rip+function]     # Using function
     mov rax, [rax+16]           # function->S
-    call uniqueID_out           # uniqueID_out(function->s, number_string)
+    call uniqueID_label_out     # uniqueID_label_out(function->s, number_string)
 
     call restore_break_frame    # Restore the old break frame
 
@@ -1923,17 +1924,17 @@ process_for_terminator:
 process_for_string_0: .asciz "FOR_END_"
 process_for_string_1: .asciz "# FOR_initialization_"
 process_for_string_2: .asciz "ERROR in process_for\nMISSING (\n"
-process_for_string_3: .asciz ":FOR_"
+process_for_string_3: .asciz "FOR_"
 process_for_string_4: .asciz "ERROR in process_for\nMISSING ;1\n"
-process_for_string_5: .asciz "test_rax,rax\nje %FOR_END_"
-process_for_string_6: .asciz "jmp %FOR_THEN_"
-process_for_string_7: .asciz ":FOR_ITER_"
+process_for_string_5: .asciz "test rax, rax\nje FOR_END_"
+process_for_string_6: .asciz "jmp FOR_THEN_"
+process_for_string_7: .asciz "FOR_ITER_"
 process_for_string_8: .asciz "ERROR in process_for\nMISSING ;2\n"
-process_for_string_9: .asciz "jmp %FOR_"
-process_for_string_10: .asciz ":FOR_THEN_"
+process_for_string_9: .asciz "jmp FOR_"
+process_for_string_10: .asciz "FOR_THEN_"
 process_for_string_11: .asciz "ERROR in process_for\nMISSING )\n"
-process_for_string_12: .asciz "jmp %FOR_ITER_"
-process_for_string_13: .asciz ":FOR_END_"
+process_for_string_12: .asciz "jmp FOR_ITER_"
+process_for_string_13: .asciz "FOR_END_"
 
 
 # process_break function
@@ -1951,7 +1952,7 @@ process_break:
     mov rax, [rip+function]     # Using function
     mov rcx, [rax+8]            # I = function->LOCALS
     mov rbx, [rip+break_frame]  # Put break_frame in the right spot
-    lea rax, [rip+process_break_string_1] # Using "pop_rbx\t# break_cleanup_locals\n"
+    lea rax, [rip+process_break_string_1] # Using "pop rbx\t# break_cleanup_locals\n"
 
 process_break_iter:
     cmp rcx, 0                  # IF (NULL == I)
@@ -1969,7 +1970,7 @@ process_break_cleaned:
     mov rax, [rax]              # global_token->NEXT
     mov [rip+global_token], rax # global_token = global_token->NEXT
 
-    lea rax, [rip+process_break_string_2] # Using "jmp %"
+    lea rax, [rip+process_break_string_2] # Using "jmp "
     call emit_out               # Emit it
 
     mov rax, [rip+break_target_head] # Get what we are in
@@ -2008,8 +2009,8 @@ process_break_bad:
     jmp Exit_Failure            # Abort Hard
 
 process_break_string_0: .asciz "Not inside of a loop or case statement"
-process_break_string_1: .asciz "pop_rbx\t# break_cleanup_locals\n"
-process_break_string_2: .asciz "jmp %"
+process_break_string_1: .asciz "pop rbx\t# break_cleanup_locals\n"
+process_break_string_2: .asciz "jmp "
 process_break_string_3: .byte 10, 0
 process_break_string_4: .asciz "ERROR in break statement\nMissing ;\n"
 
@@ -2032,7 +2033,7 @@ expression:
     jne expression_done         # Looks like nope
 
     # Deal with possible assignment
-    lea rcx, [rip+expression_string_1] # Assume "mov_[rbx],al\n" by default
+    lea rcx, [rip+expression_string_1] # Assume "mov byte ptr [rbx], al\n" by default
     mov rbx, [rip+global_token] # Using global_token
     mov rbx, [rbx+8]            # global_token->PREV
     mov rbx, [rbx+16]           # global_token->PREV->S
@@ -2048,10 +2049,10 @@ expression:
     cmp rax, 0                  # IF current_target->NAME == "char*"
     jne expression_int          # Do char anyway
 
-    jmp expression_common       # Looks like we have to use "mov_[rbx],al\n"
+    jmp expression_common       # Looks like we have to use "mov byte ptr [rbx], al\n"
 
 expression_int:
-    lea rcx, [rip+expression_string_0] # Use "mov_[rbx],rax\n"
+    lea rcx, [rip+expression_string_0] # Use "mov qword ptr [rbx], rax\n"
 
 expression_common:
     lea rax, [rip+expression]   # Passing expression
@@ -2066,8 +2067,8 @@ expression_done:
     pop rbx                     # Restore RBX
     ret
 
-expression_string_0: .asciz "mov_[rbx],rax\n"
-expression_string_1: .asciz "mov_[rbx],al\n"
+expression_string_0: .asciz "mov qword ptr [rbx], rax\n"
+expression_string_1: .asciz "mov byte ptr [rbx], al\n"
 
 
 # bitwise_expr function
@@ -2092,31 +2093,31 @@ bitwise_expr_stub:
     push rdx                    # Protect RDX
 
     lea rax, [rip+relational_expr] # Using relational_expr
-    lea rbx, [rip+bitwise_expr_stub_string_0] # Using "and_rax,rbx\n"
+    lea rbx, [rip+bitwise_expr_stub_string_0] # Using "and rax, rbx\n"
     lea rcx, [rip+bitwise_and]  # Using "&"
     lea rdx, [rip+bitwise_expr_stub] # And recurse
     call general_recursion      # Hit it
 
     lea rax, [rip+relational_expr] # Using relational_expr
-    lea rbx, [rip+bitwise_expr_stub_string_0] # Using "and_rax,rbx\n"
+    lea rbx, [rip+bitwise_expr_stub_string_0] # Using "and rax, rbx\n"
     lea rcx, [rip+logical_and]  # Using "&&"
     lea rdx, [rip+bitwise_expr_stub] # And recurse
     call general_recursion      # Hit it
 
     lea rax, [rip+relational_expr] # Using relational_expr
-    lea rbx, [rip+bitwise_expr_stub_string_1] # Using "or_rax,rbx\n"
+    lea rbx, [rip+bitwise_expr_stub_string_1] # Using "or rax, rbx\n"
     lea rcx, [rip+bitwise_or]   # Using "|"
     lea rdx, [rip+bitwise_expr_stub] # And recurse
     call general_recursion      # Hit it
 
     lea rax, [rip+relational_expr] # Using relational_expr
-    lea rbx, [rip+bitwise_expr_stub_string_1] # Using "or_rax,rbx\n"
+    lea rbx, [rip+bitwise_expr_stub_string_1] # Using "or rax, rbx\n"
     lea rcx, [rip+logical_or]   # Using "||"
     lea rdx, [rip+bitwise_expr_stub] # And recurse
     call general_recursion      # Hit it
 
     lea rax, [rip+relational_expr] # Using relational_expr
-    lea rbx, [rip+bitwise_expr_stub_string_2] # Using "xor_rax,rbx\n"
+    lea rbx, [rip+bitwise_expr_stub_string_2] # Using "xor rax, rbx\n"
     lea rcx, [rip+bitwise_xor]  # Using "^"
     lea rdx, [rip+bitwise_expr_stub] # And recurse
     call general_recursion      # Hit it
@@ -2126,9 +2127,9 @@ bitwise_expr_stub:
     pop rbx                     # Restore RBX
     ret
 
-bitwise_expr_stub_string_0: .asciz "and_rax,rbx\n"
-bitwise_expr_stub_string_1: .asciz "or_rax,rbx\n"
-bitwise_expr_stub_string_2: .asciz "xor_rax,rbx\n"
+bitwise_expr_stub_string_0: .asciz "and rax, rbx\n"
+bitwise_expr_stub_string_1: .asciz "or rax, rbx\n"
+bitwise_expr_stub_string_2: .asciz "xor rax, rbx\n"
 
 
 # relational_expr function
@@ -2153,37 +2154,37 @@ relational_expr_stub:
     push rdx                    # Protect RDX
 
     lea rax, [rip+additive_expr] # Using additive_expr
-    lea rbx, [rip+relational_expr_stub_string_0] # Using "cmp_rbx,rax\nsetl_al\nmovzx_rax,al\n"
+    lea rbx, [rip+relational_expr_stub_string_0] # Using "cmp rbx, rax\nsetl al\nmovzx rax, al\n"
     lea rcx, [rip+less_than_string] # Using "<"
     lea rdx, [rip+relational_expr_stub] # And recurse
     call general_recursion      # Hit it
 
     lea rax, [rip+additive_expr] # Using additive_expr
-    lea rbx, [rip+relational_expr_stub_string_1] # Using "cmp_rbx,rax\nsetle_al\nmovzx_rax,al\n"
+    lea rbx, [rip+relational_expr_stub_string_1] # Using "cmp rbx, rax\nsetle al\nmovzx rax, al\n"
     lea rcx, [rip+less_than_equal_string] # Using "<="
     lea rdx, [rip+relational_expr_stub] # And recurse
     call general_recursion      # Hit it
 
     lea rax, [rip+additive_expr] # Using additive_expr
-    lea rbx, [rip+relational_expr_stub_string_2] # Using "cmp_rbx,rax\nsetge_al\nmovzx_rax,al\n"
+    lea rbx, [rip+relational_expr_stub_string_2] # Using "cmp rbx, rax\nsetge al\nmovzx rax, al\n"
     lea rcx, [rip+greater_than_equal_string] # Using ">="
     lea rdx, [rip+relational_expr_stub] # And recurse
     call general_recursion      # Hit it
 
     lea rax, [rip+additive_expr] # Using additive_expr
-    lea rbx, [rip+relational_expr_stub_string_3] # Using "cmp_rbx,rax\nsetg_al\nmovzx_rax,al\n"
+    lea rbx, [rip+relational_expr_stub_string_3] # Using "cmp rbx, rax\nsetg al\nmovzx rax, al\n"
     lea rcx, [rip+greater_than_string] # Using ">"
     lea rdx, [rip+relational_expr_stub] # And recurse
     call general_recursion      # Hit it
 
     lea rax, [rip+additive_expr] # Using additive_expr
-    lea rbx, [rip+relational_expr_stub_string_4] # Using "cmp_rbx,rax\nsete_al\nmovzx_rax,al\n"
+    lea rbx, [rip+relational_expr_stub_string_4] # Using "cmp rbx, rax\nsete al\nmovzx rax, al\n"
     lea rcx, [rip+equal_to_string] # Using "=="
     lea rdx, [rip+relational_expr_stub] # And recurse
     call general_recursion      # Hit it
 
     lea rax, [rip+additive_expr] # Using additive_expr
-    lea rbx, [rip+relational_expr_stub_string_5] # Using "cmp_rbx,rax\nsetne_al\nmovzx_rax,al\n"
+    lea rbx, [rip+relational_expr_stub_string_5] # Using "cmp rbx, rax\nsetne al\nmovzx rax, al\n"
     lea rcx, [rip+not_equal_string] # Using "!="
     lea rdx, [rip+relational_expr_stub] # And recurse
     call general_recursion      # Hit it
@@ -2193,12 +2194,12 @@ relational_expr_stub:
     pop rbx                     # Restore RBX
     ret
 
-relational_expr_stub_string_0: .asciz "cmp_rbx,rax\nsetl_al\nmovzx_rax,al\n"
-relational_expr_stub_string_1: .asciz "cmp_rbx,rax\nsetle_al\nmovzx_rax,al\n"
-relational_expr_stub_string_2: .asciz "cmp_rbx,rax\nsetge_al\nmovzx_rax,al\n"
-relational_expr_stub_string_3: .asciz "cmp_rbx,rax\nsetg_al\nmovzx_rax,al\n"
-relational_expr_stub_string_4: .asciz "cmp_rbx,rax\nsete_al\nmovzx_rax,al\n"
-relational_expr_stub_string_5: .asciz "cmp_rbx,rax\nsetne_al\nmovzx_rax,al\n"
+relational_expr_stub_string_0: .asciz "cmp rbx, rax\nsetl al\nmovzx rax, al\n"
+relational_expr_stub_string_1: .asciz "cmp rbx, rax\nsetle al\nmovzx rax, al\n"
+relational_expr_stub_string_2: .asciz "cmp rbx, rax\nsetge al\nmovzx rax, al\n"
+relational_expr_stub_string_3: .asciz "cmp rbx, rax\nsetg al\nmovzx rax, al\n"
+relational_expr_stub_string_4: .asciz "cmp rbx, rax\nsete al\nmovzx rax, al\n"
+relational_expr_stub_string_5: .asciz "cmp rbx, rax\nsetne al\nmovzx rax, al\n"
 
 
 # additive_expr function
@@ -2223,43 +2224,43 @@ additive_expr_stub:
     push rdx                    # Protect RDX
 
     lea rax, [rip+postfix_expr] # Using postfix_expr
-    lea rbx, [rip+additive_expr_stub_string_0] # Using "add_rax,rbx\n"
+    lea rbx, [rip+additive_expr_stub_string_0] # Using "add rax, rbx\n"
     lea rcx, [rip+plus_string]  # Using "+"
     lea rdx, [rip+additive_expr_stub] # And recurse
     call general_recursion      # Hit it
 
     lea rax, [rip+postfix_expr] # Using postfix_expr
-    lea rbx, [rip+additive_expr_stub_string_1] # Using "sub_rbx,rax\nmov_rax,rbx\n"
+    lea rbx, [rip+additive_expr_stub_string_1] # Using "sub rbx, rax\nmov rax, rbx\n"
     lea rcx, [rip+minus_string] # Using "-"
     lea rdx, [rip+additive_expr_stub] # And recurse
     call general_recursion      # Hit it
 
     lea rax, [rip+postfix_expr] # Using postfix_expr
-    lea rbx, [rip+additive_expr_stub_string_2] # Using "mul_rbx\n"
+    lea rbx, [rip+additive_expr_stub_string_2] # Using "mul rbx\n"
     lea rcx, [rip+multiply_string] # Using "*"
     lea rdx, [rip+additive_expr_stub] # And recurse
     call general_recursion      # Hit it
 
     lea rax, [rip+postfix_expr] # Using postfix_expr
-    lea rbx, [rip+additive_expr_stub_string_3] # Using "xchg_rbx,rax\nmov_rdx, %0\ndiv_rbx\n"
+    lea rbx, [rip+additive_expr_stub_string_3] # Using "xchg rbx, rax\nmov rdx, 0\ndiv rbx\n"
     lea rcx, [rip+divide_string] # Using "/"
     lea rdx, [rip+additive_expr_stub] # And recurse
     call general_recursion      # Hit it
 
     lea rax, [rip+postfix_expr] # Using postfix_expr
-    lea rbx, [rip+additive_expr_stub_string_4] # Using "xchg_rbx,rax\nmov_rdx, %0\ndiv_rbx\nmov_rax,rdx\n"
+    lea rbx, [rip+additive_expr_stub_string_4] # Using "xchg rbx, rax\nmov rdx, 0\ndiv rbx\nmov rax, rdx\n"
     lea rcx, [rip+modulus_string] # Using "%"
     lea rdx, [rip+additive_expr_stub] # And recurse
     call general_recursion      # Hit it
 
     lea rax, [rip+postfix_expr] # Using postfix_expr
-    lea rbx, [rip+additive_expr_stub_string_5] # Using "mov_rcx,rax\nmov_rax,rbx\nsal_rax,cl\n"
+    lea rbx, [rip+additive_expr_stub_string_5] # Using "mov rcx, rax\nmov rax, rbx\nsal rax, cl\n"
     lea rcx, [rip+left_shift_string] # Using "<<"
     lea rdx, [rip+additive_expr_stub] # And recurse
     call general_recursion      # Hit it
 
     lea rax, [rip+postfix_expr] # Using postfix_expr
-    lea rbx, [rip+additive_expr_stub_string_6] # Using "mov_rcx,rax\nmov_rax,rbx\nsar_rax,cl\n"
+    lea rbx, [rip+additive_expr_stub_string_6] # Using "mov rcx, rax\nmov rax, rbx\nsar rax, cl\n"
     lea rcx, [rip+right_shift_string] # Using ">>"
     lea rdx, [rip+additive_expr_stub] # And recurse
     call general_recursion      # Hit it
@@ -2269,13 +2270,13 @@ additive_expr_stub:
     pop rbx                     # Restore RBX
     ret
 
-additive_expr_stub_string_0: .asciz "add_rax,rbx\n"
-additive_expr_stub_string_1: .asciz "sub_rbx,rax\nmov_rax,rbx\n"
-additive_expr_stub_string_2: .asciz "mul_rbx\n"
-additive_expr_stub_string_3: .asciz "xchg_rbx,rax\nmov_rdx, %0\ndiv_rbx\n"
-additive_expr_stub_string_4: .asciz "xchg_rbx,rax\nmov_rdx, %0\ndiv_rbx\nmov_rax,rdx\n"
-additive_expr_stub_string_5: .asciz "mov_rcx,rax\nmov_rax,rbx\nsal_rax,cl\n"
-additive_expr_stub_string_6: .asciz "mov_rcx,rax\nmov_rax,rbx\nsar_rax,cl\n"
+additive_expr_stub_string_0: .asciz "add rax, rbx\n"
+additive_expr_stub_string_1: .asciz "sub rbx, rax\nmov rax, rbx\n"
+additive_expr_stub_string_2: .asciz "mul rbx\n"
+additive_expr_stub_string_3: .asciz "xchg rbx, rax\nmov rdx, 0\ndiv rbx\n"
+additive_expr_stub_string_4: .asciz "xchg rbx, rax\nmov rdx, 0\ndiv rbx\nmov rax, rdx\n"
+additive_expr_stub_string_5: .asciz "mov rcx, rax\nmov rax, rbx\nsal rax, cl\n"
+additive_expr_stub_string_6: .asciz "mov rcx, rax\nmov rax, rbx\nsar rax, cl\n"
 
 
 # postfix_expr function
@@ -2344,7 +2345,7 @@ unary_expr_sizeof:
     lea rbx, [rip+close_paren]  # Using ")"
     call require_match          # Make sure we have it
 
-    lea rax, [rip+unary_expr_sizeof_string_2] # Using "mov_rax, %"
+    lea rax, [rip+unary_expr_sizeof_string_2] # Using "mov rax, "
     call emit_out               # Emit it
 
     mov rax, rcx                # Put A->SIZE in the right place
@@ -2360,7 +2361,7 @@ unary_expr_sizeof:
 
 unary_expr_sizeof_string_0: .asciz "ERROR in unary_expr\nMissing (\n"
 unary_expr_sizeof_string_1: .asciz "ERROR in unary_expr\nMissing )\n"
-unary_expr_sizeof_string_2: .asciz "mov_rax, %"
+unary_expr_sizeof_string_2: .asciz "mov rax, "
 unary_expr_sizeof_string_3: .byte 10, 0
 
 
@@ -2380,7 +2381,7 @@ postfix_expr_array:
     pop rbx                     # Restore array
     mov [rip+current_target], rbx # current_target = ARRAY
 
-    lea rcx, [rip+postfix_expr_array_string_0] # ASSIGN = "mov_rax,[rax]\n"
+    lea rcx, [rip+postfix_expr_array_string_0] # ASSIGN = "mov rax, [rax]\n"
 
     lea rax, [rip+type_char_indirect_name] # Using "char*"
     mov rbx, [rbx+48]           # current_target->NAME
@@ -2389,7 +2390,7 @@ postfix_expr_array:
     jne postfix_expr_array_large # Otherwise adjust
 
     # Deal with loading byte
-    lea rcx, [rip+postfix_expr_array_string_1] # ASSIGN = "movsx_rax,BYTE_PTR_[rax]\n"
+    lea rcx, [rip+postfix_expr_array_string_1] # ASSIGN = "movsx rax, byte ptr [rax]\n"
     jmp postfix_expr_array_common # Do the next bit
 
 postfix_expr_array_large:
@@ -2408,7 +2409,7 @@ postfix_expr_array_large:
     call emit_out               # Emit it
 
 postfix_expr_array_common:
-    lea rax, [rip+postfix_expr_array_string_4] # Using "add_rax,rbx\n"
+    lea rax, [rip+postfix_expr_array_string_4] # Using "add rax, rbx\n"
     call emit_out               # Emit it
 
     lea rax, [rip+postfix_expr_array_string_5] # Using "ERROR in postfix_expr\nMissing ]\n"
@@ -2433,11 +2434,11 @@ postfix_expr_array_done:
     pop rbx                     # Restore RBX
     ret
 
-postfix_expr_array_string_0: .asciz "mov_rax,[rax]\n"
-postfix_expr_array_string_1: .asciz "movsx_rax,BYTE_PTR_[rax]\n"
-postfix_expr_array_string_2: .asciz "sal_rax, !"
+postfix_expr_array_string_0: .asciz "mov rax, [rax]\n"
+postfix_expr_array_string_1: .asciz "movsx rax, byte ptr [rax]\n"
+postfix_expr_array_string_2: .asciz "sal rax, "
 postfix_expr_array_string_3: .byte 10, 0
-postfix_expr_array_string_4: .asciz "add_rax,rbx\n"
+postfix_expr_array_string_4: .asciz "add rax, rbx\n"
 postfix_expr_array_string_5: .asciz "ERROR in postfix_expr\nMissing ]\n"
 postfix_expr_array_string_6: .byte 0
 
@@ -2513,7 +2514,7 @@ postfix_expr_arrow:
     call numerate_number        # Convert to string
     call emit_out               # Emit it
 
-    lea rax, [rip+postfix_expr_arrow_string_2] # Using "\nadd_rax,rbx\n"
+    lea rax, [rip+postfix_expr_arrow_string_2] # Using "\nadd rax, rbx\n"
     call emit_out               # Emit it
 
 postfix_expr_arrow_first:
@@ -2530,7 +2531,7 @@ postfix_expr_arrow_first:
     je postfix_expr_arrow_done  # Be done
 
     # Deal with load case
-    lea rax, [rip+postfix_expr_arrow_string_3] # Using "mov_rax,[rax]\n"
+    lea rax, [rip+postfix_expr_arrow_string_3] # Using "mov rax, [rax]\n"
     call emit_out               # Emit it
 
 postfix_expr_arrow_done:
@@ -2538,9 +2539,9 @@ postfix_expr_arrow_done:
     ret
 
 postfix_expr_arrow_string_0: .asciz "# looking up offset\n"
-postfix_expr_arrow_string_1: .asciz "# -> offset calculation\nmov_rbx, %"
-postfix_expr_arrow_string_2: .asciz "\nadd_rax,rbx\n"
-postfix_expr_arrow_string_3: .asciz "mov_rax,[rax]\n"
+postfix_expr_arrow_string_1: .asciz "# -> offset calculation\nmov rbx, "
+postfix_expr_arrow_string_2: .asciz "\nadd rax, rbx\n"
+postfix_expr_arrow_string_3: .asciz "mov rax, [rax]\n"
 
 
 # primary_expr function
@@ -2569,13 +2570,13 @@ primary_expr_neg:
     jne primary_expr_not        # Otherwise try logical NOT
 
     # Deal with negative numbers
-    lea rax, [rip+primary_expr_string_0] # Using "mov_rax, %0\n"
+    lea rax, [rip+primary_expr_string_0] # Using "mov rax, 0\n"
     call emit_out               # Emit it
 
     lea rax, [rip+postfix_expr] # Passing postfix_expr
     call common_recursion       # Get what it is notting
 
-    lea rax, [rip+primary_expr_string_1] # Using "sub_rbx,rax\nmov_rax,rbx\n"
+    lea rax, [rip+primary_expr_string_1] # Using "sub rbx, rax\nmov rax, rbx\n"
     call emit_out               # Emit it
     jmp primary_expr_done       # Be done
 
@@ -2588,13 +2589,13 @@ primary_expr_not:
     jne primary_expr_bin        # Otherwise try '~'
 
     # Deal with logical not
-    lea rax, [rip+primary_expr_string_2] # Using "mov_rax, %1\n"
+    lea rax, [rip+primary_expr_string_2] # Using "mov rax, 1\n"
     call emit_out               # Emit it
 
     lea rax, [rip+postfix_expr] # Passing postfix_expr
     call common_recursion       # Get what it is notting
 
-    lea rax, [rip+primary_expr_string_3] # Using "cmp_rbx,rax\nseta_al\nmovzx_rax,al\n"
+    lea rax, [rip+primary_expr_string_3] # Using "cmp rbx, rax\nseta al\nmovzx rax, al\n"
     call emit_out               # Emit it
     jmp primary_expr_done       # Be done
 
@@ -2609,7 +2610,7 @@ primary_expr_bin:
     # Deal with binary NOT
     lea rax, [rip+postfix_expr] # Passing postfix_expr
     call common_recursion       # Get what it is notting
-    lea rax, [rip+primary_expr_string_4] # Using "not_rax\n"
+    lea rax, [rip+primary_expr_string_4] # Using "not rax\n"
     call emit_out               # Emit it
     jmp primary_expr_done       # Be done
 
@@ -2691,11 +2692,11 @@ primary_expr_done:
     pop rbx                     # Restore RBX
     ret
 
-primary_expr_string_0: .asciz "mov_rax, %0\n"
-primary_expr_string_1: .asciz "sub_rbx,rax\nmov_rax,rbx\n"
-primary_expr_string_2: .asciz "mov_rax, %1\n"
-primary_expr_string_3: .asciz "cmp_rbx,rax\nseta_al\nmovzx_rax,al\n"
-primary_expr_string_4: .asciz "not_rax\n"
+primary_expr_string_0: .asciz "mov rax, 0\n"
+primary_expr_string_1: .asciz "sub rbx, rax\nmov rax, rbx\n"
+primary_expr_string_2: .asciz "mov rax, 1\n"
+primary_expr_string_3: .asciz "cmp rbx, rax\nseta al\nmovzx rax, al\n"
+primary_expr_string_4: .asciz "not rax\n"
 primary_expr_string_5: .asciz "Error in Primary expression\nDidn't get )\n"
 primary_expr_string_6: .asciz "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_"
 primary_expr_string_7: .asciz "0123456789"
@@ -2722,7 +2723,7 @@ primary_expr_variable:
 
     # Deal with constant load
     mov rbx, [rax+32]           # a->ARGS
-    lea rax, [rip+primary_expr_variable_string_2] # Using "mov_rax, %"
+    lea rax, [rip+primary_expr_variable_string_2] # Using "mov rax, "
     call emit_out               # Emit it
 
     mov rax, [rbx+16]           # a->ARGS->S
@@ -2795,7 +2796,7 @@ primary_expr_variable_done:
 
 primary_expr_variable_string_0: .asciz " is not a defined symbol\n"
 primary_expr_variable_string_1: .byte 10, 0
-primary_expr_variable_string_2: .asciz "mov_rax, %"
+primary_expr_variable_string_2: .asciz "mov rax, "
 
 
 # function_call function
@@ -2815,13 +2816,13 @@ function_call:
     lea rbx, [rip+open_paren]   # Using "("
     call require_match          # Make sure we have it
 
-    lea rax, [rip+function_call_string_1] # Using "push_rdi\t# Prevent overwriting in recursion\n"
+    lea rax, [rip+function_call_string_1] # Using "push rdi\t# Prevent overwriting in recursion\n"
     call emit_out               # Emit it
 
-    lea rax, [rip+function_call_string_2] # Using "push_rbp\t# Protect the old base pointer\n"
+    lea rax, [rip+function_call_string_2] # Using "push rbp\t# Protect the old base pointer\n"
     call emit_out               # Emit it
 
-    lea rax, [rip+function_call_string_3] # Using "mov_rdi,rsp\t# Copy new base pointer\n"
+    lea rax, [rip+function_call_string_3] # Using "mov rdi, rsp\t# Copy new base pointer\n"
     call emit_out               # Emit it
 
     mov rax, [rip+global_token] # Using global_token
@@ -2834,7 +2835,7 @@ function_call:
     # looks like we have arguments to collect
     call expression             # Collect the argument
 
-    lea rax, [rip+function_call_string_4] # Using "push_rax\t#_process_expression1\n"
+    lea rax, [rip+function_call_string_4] # Using "push rax\t#_process_expression1\n"
     call emit_out               # Emit it
     mov rsi, 1                  # PASSED = 1
 
@@ -2852,7 +2853,7 @@ function_call_gen_iter:
 
     call expression             # Collect the argument
 
-    lea rax, [rip+function_call_string_5] # Using "push_rax\t#_process_expression2\n"
+    lea rax, [rip+function_call_string_5] # Using "push rax\t#_process_expression2\n"
     call emit_out               # Emit it
     add rsi, 1                  # PASSED = PASSED + 1
     jmp function_call_gen_iter  # Keep trying
@@ -2867,30 +2868,30 @@ function_call_gen_done:
     jne function_call_static    # Otherwise it is a static call
 
     # Deal with a passed function pointer
-    lea rax, [rip+function_call_string_7] # Using "lea_rax,[rbp+DWORD] %"
+    lea rax, [rip+function_call_string_7] # Using "lea rax, [rbp+"
     call emit_out               # Emit it
 
     mov rax, rcx                # Using S
     call emit_out               # Emit it
 
-    lea rax, [rip+function_call_string_8] # Using "\nmov_rax,[rax]\n"
+    lea rax, [rip+function_call_string_8] # Using "\nmov rax, [rax]\n"
     call emit_out               # Emit it
 
-    lea rax, [rip+function_call_string_9] # Using "mov_rbp,rdi\n"
+    lea rax, [rip+function_call_string_9] # Using "mov rbp, rdi\n"
     call emit_out               # Emit it
 
-    lea rax, [rip+function_call_string_10] # Using "call_rax\n"
+    lea rax, [rip+function_call_string_10] # Using "call rax\n"
     call emit_out               # Emit it
 
-    lea rax, [rip+function_call_string_13] # Using "pop_rbx\t# _process_expression_locals\n"
+    lea rax, [rip+function_call_string_13] # Using "pop rbx\t# _process_expression_locals\n"
     jmp function_call_cleanup   # Clean up
 
 function_call_static:
     # Deal with fixed function name
-    lea rax, [rip+function_call_string_9] # Using "mov_rbp,rdi\n"
+    lea rax, [rip+function_call_string_9] # Using "mov rbp, rdi\n"
     call emit_out               # Emit it
 
-    lea rax, [rip+function_call_string_11] # Using "call %FUNCTION_"
+    lea rax, [rip+function_call_string_11] # Using "call FUNCTION_"
     call emit_out               # Emit it
 
     mov rax, rcx                # Using S
@@ -2899,7 +2900,7 @@ function_call_static:
     lea rax, [rip+function_call_string_12] # Using "\n"
     call emit_out               # Emit it
 
-    lea rax, [rip+function_call_string_13] # Using "pop_rbx\t# _process_expression_locals\n"
+    lea rax, [rip+function_call_string_13] # Using "pop rbx\t# _process_expression_locals\n"
 
 function_call_cleanup:
     cmp rsi, 0                  # IF PASSED > 0
@@ -2912,10 +2913,10 @@ function_call_cleanup:
     jmp function_call_cleanup   # Keep going
 
 function_call_done:
-    lea rax, [rip+function_call_string_14] # Using "pop_rbp\t# Restore old base pointer\n"
+    lea rax, [rip+function_call_string_14] # Using "pop rbp\t# Restore old base pointer\n"
     call emit_out               # Emit it
 
-    lea rax, [rip+function_call_string_15] # Using "pop_rdi\t# Prevent overwrite\n"
+    lea rax, [rip+function_call_string_15] # Using "pop rdi\t# Prevent overwrite\n"
     call emit_out               # Emit it
 
     pop rsi                     # Restore RSI
@@ -2925,21 +2926,21 @@ function_call_done:
     ret
 
 function_call_string_0: .asciz "ERROR in process_expression_list\nNo ( was found\n"
-function_call_string_1: .asciz "push_rdi\t# Prevent overwriting in recursion\n"
-function_call_string_2: .asciz "push_rbp\t# Protect the old base pointer\n"
-function_call_string_3: .asciz "mov_rdi,rsp\t# Copy new base pointer\n"
-function_call_string_4: .asciz "push_rax\t#_process_expression1\n"
-function_call_string_5: .asciz "push_rax\t#_process_expression2\n"
+function_call_string_1: .asciz "push rdi\t# Prevent overwriting in recursion\n"
+function_call_string_2: .asciz "push rbp\t# Protect the old base pointer\n"
+function_call_string_3: .asciz "mov rdi, rsp\t# Copy new base pointer\n"
+function_call_string_4: .asciz "push rax\t#_process_expression1\n"
+function_call_string_5: .asciz "push rax\t#_process_expression2\n"
 function_call_string_6: .asciz "ERROR in process_expression_list\nNo ) was found\n"
-function_call_string_7: .asciz "lea_rax,[rbp+DWORD] %"
-function_call_string_8: .asciz "\nmov_rax,[rax]\n"
-function_call_string_9: .asciz "mov_rbp,rdi\n"
-function_call_string_10: .asciz "call_rax\n"
-function_call_string_11: .asciz "call %FUNCTION_"
+function_call_string_7: .asciz "lea rax, [rbp+"
+function_call_string_8: .asciz "]\nmov rax, [rax]\n"
+function_call_string_9: .asciz "mov rbp, rdi\n"
+function_call_string_10: .asciz "call rax\n"
+function_call_string_11: .asciz "call FUNCTION_"
 function_call_string_12: .byte 10, 0
-function_call_string_13: .asciz "pop_rbx\t# _process_expression_locals\n"
-function_call_string_14: .asciz "pop_rbp\t# Restore old base pointer\n"
-function_call_string_15: .asciz "pop_rdi\t# Prevent overwrite\n"
+function_call_string_13: .asciz "pop rbx\t# _process_expression_locals\n"
+function_call_string_14: .asciz "pop rbp\t# Restore old base pointer\n"
+function_call_string_15: .asciz "pop rdi\t# Prevent overwrite\n"
 
 
 # variable_load function
@@ -2977,7 +2978,7 @@ variable_load_regular:
     mov rax, [rcx+24]           # A->TYPE
     mov [rip+current_target], rax # current_target = A->TYPE
 
-    lea rax, [rip+variable_load_string_0] # Using "lea_rax,[rbp+DWORD] %"
+    lea rax, [rip+variable_load_string_0] # Using "lea rax, [rbp+"
     call emit_out               # Emit it
 
     mov rax, [rcx+32]           # A->DEPTH
@@ -2996,7 +2997,7 @@ variable_load_regular:
     je variable_load_done       # And be done
 
     # Deal with common case
-    lea rax, [rip+variable_load_string_2] # Using "mov_rax,[rax]\n"
+    lea rax, [rip+variable_load_string_2] # Using "mov rax, [rax]\n"
     call emit_out               # Emit it
 
 variable_load_done:
@@ -3004,9 +3005,9 @@ variable_load_done:
     pop rbx                     # Restore RBX
     ret
 
-variable_load_string_0: .asciz "lea_rax,[rbp+DWORD] %"
-variable_load_string_1: .byte 10, 0
-variable_load_string_2: .asciz "mov_rax,[rax]\n"
+variable_load_string_0: .asciz "lea rax, [rbp+"
+variable_load_string_1: .asciz "]\n"
+variable_load_string_2: .asciz "mov rax, [rax]\n"
 
 
 # function_load function
@@ -3032,7 +3033,7 @@ function_load:
     jmp function_load_done      # Be done
 
 function_load_regular:
-    lea rax, [rip+function_load_string_0] # Using "lea_rax,[rip+DWORD] %FUNCTION_"
+    lea rax, [rip+function_load_string_0] # Using "lea rax, [rip+FUNCTION_"
     call emit_out               # Emit it
 
     mov rax, rcx                # Using A->S
@@ -3046,8 +3047,8 @@ function_load_done:
     pop rbx                     # Restore RBX
     ret
 
-function_load_string_0: .asciz "lea_rax,[rip+DWORD] %FUNCTION_"
-function_load_string_1: .byte 10, 0
+function_load_string_0: .asciz "lea rax, [rip+FUNCTION_"
+function_load_string_1: .asciz "]\n"
 
 
 # global_load function
@@ -3062,7 +3063,7 @@ global_load:
     mov rax, [rax+24]           # A->TYPE
     mov [rip+current_target], rax # current_target = A->TYPE
 
-    lea rax, [rip+global_load_string_0] # Using "lea_rax,[rip+DWORD] %GLOBAL_"
+    lea rax, [rip+global_load_string_0] # Using "lea rax, [rip+GLOBAL_"
     call emit_out               # Emit it
 
     mov rax, rbx                # Using A->S
@@ -3079,16 +3080,16 @@ global_load:
     je global_load_done         # and be done
 
     # Otherwise we are loading the contents
-    lea rax, [rip+global_load_string_2] # Using "mov_rax,[rax]\n"
+    lea rax, [rip+global_load_string_2] # Using "mov rax, [rax]\n"
     call emit_out               # Emit it
 
 global_load_done:
     pop rbx                     # Restore RBX
     ret
 
-global_load_string_0: .asciz "lea_rax,[rip+DWORD] %GLOBAL_"
-global_load_string_1: .byte 10, 0
-global_load_string_2: .asciz "mov_rax,[rax]\n"
+global_load_string_0: .asciz "lea rax, [rip+GLOBAL_"
+global_load_string_1: .asciz "]\n"
+global_load_string_2: .asciz "mov rax, [rax]\n"
 
 
 # sym_lookup function
@@ -3124,7 +3125,7 @@ sym_lookup_done:
 # Returns nothing
 # Simply uses current global token to update output and then steps to next global_token
 primary_expr_number:
-    lea rax, [rip+primary_expr_number_string_0] # Using "mov_rax, %"
+    lea rax, [rip+primary_expr_number_string_0] # Using "mov rax, "
     call emit_out               # Emit it
 
     mov rax, [rip+global_token] # Using global_token
@@ -3139,7 +3140,7 @@ primary_expr_number:
     mov [rip+global_token], rax # global_token = global_token->NEXT
     ret
 
-primary_expr_number_string_0: .asciz "mov_rax, %"
+primary_expr_number_string_0: .asciz "mov rax, "
 primary_expr_number_string_1: .byte 10, 0
 
 
@@ -3159,16 +3160,16 @@ primary_expr_string:
     add rbx, 1                  # current_count + 1
     mov [rip+current_count], rbx # current_count = current_count + 1
 
-    lea rax, [rip+primary_expr_string_string_0] # Using "lea_rax,[rip+DWORD] %STRING_"
+    lea rax, [rip+primary_expr_string_string_0] # Using "lea rax, [rip+STRING_"
     call emit_out               # Emit it
 
     mov rax, [rip+function]     # Using function
     mov rax, [rax+16]           # function->S
     mov rbx, rcx                # Put number_string in the right place
-    call uniqueID_out           # Make it unique
+    call uniqueID_bracket_out   # Make it unique
 
     # Generate the target
-    lea rax, [rip+primary_expr_string_string_1] # Using ":STRING_"
+    lea rax, [rip+primary_expr_string_string_1] # Using "STRING_"
     mov rbx, [rip+strings_list] # Using strings_list
     call emit                   # Emit it
     mov rbx, rax                # put new strings_list in place
@@ -3176,6 +3177,9 @@ primary_expr_string:
     mov rax, [rip+function]     # Using function
     mov rax, [rax+16]           # function->S
     call uniqueID               # Make it unique
+    mov rbx, rax                # put new strings_list in place
+    lea rax, [rip+uniqueID_label_suffix] # Using ":\n"
+    call emit                   # finish label
     mov rbx, rax                # put new strings_list in place
 
     # Parse the string
@@ -3193,8 +3197,8 @@ primary_expr_string:
     pop rbx                     # Restore RBX
     ret
 
-primary_expr_string_string_0: .asciz "lea_rax,[rip+DWORD] %STRING_"
-primary_expr_string_string_1: .asciz ":STRING_"
+primary_expr_string_string_0: .asciz "lea rax, [rip+STRING_"
+primary_expr_string_string_1: .asciz "STRING_"
 
 
 # primary_expr_char function
@@ -3204,7 +3208,7 @@ primary_expr_string_string_1: .asciz ":STRING_"
 primary_expr_char:
     push rbx                    # Protect RBX
     push rcx                    # Protect RCX
-    lea rax, [rip+primary_expr_char_string_0] # Using "mov_rax, %"
+    lea rax, [rip+primary_expr_char_string_0] # Using "mov rax, "
     call emit_out               # Emit it
 
     mov rax, [rip+global_token] # Using global token
@@ -3224,7 +3228,7 @@ primary_expr_char:
     pop rbx                     # Restore RBX
     ret
 
-primary_expr_char_string_0: .asciz "mov_rax, %"
+primary_expr_char_string_0: .asciz "mov rax, "
 primary_expr_char_string_1: .byte 10, 0
 
 
@@ -3348,7 +3352,7 @@ promote_type_done:
 common_recursion:
     push rbx                    # Protect RBX
     mov rbx, rax                # Put FUNCTION F safely out of the way
-    lea rax, [rip+common_recursion_string_0] # Using "push_rax\t#_common_recursion\n"
+    lea rax, [rip+common_recursion_string_0] # Using "push rax\t#_common_recursion\n"
     call emit_out               # Emit it
 
     mov rax, [rip+global_token] # Using global_token
@@ -3362,13 +3366,13 @@ common_recursion:
     call promote_type           # get the right type
     mov [rip+current_target], rax # Set new current_target
 
-    lea rax, [rip+common_recursion_string_1] # Using "pop_rbx\t# _common_recursion\n"
+    lea rax, [rip+common_recursion_string_1] # Using "pop rbx\t# _common_recursion\n"
     call emit_out               # Emit it
     pop rbx                     # Restore RBX
     ret
 
-common_recursion_string_0: .asciz "push_rax\t#_common_recursion\n"
-common_recursion_string_1: .asciz "pop_rbx\t# _common_recursion\n"
+common_recursion_string_0: .asciz "push rax\t#_common_recursion\n"
+common_recursion_string_1: .asciz "pop rbx\t# _common_recursion\n"
 
 
 # require_match function
@@ -3415,13 +3419,13 @@ uniqueID:
     mov rax, rcx                # Put num in correct place
     call emit                   # emit(num, l)
     mov rbx, rax                # Put L in correct place
-    lea rax, [rip+uniqueID_string_0] # Using "\n"
-    call emit                   # emit("\n", l)
     pop rcx                     # Restore RCX
     pop rbx                     # Restore RBX
     ret
 
 uniqueID_string_0: .byte 10, 0
+uniqueID_label_suffix: .asciz ":\n"
+uniqueID_bracket_suffix: .asciz "]\n"
 
 
 # uniqueID_out function
@@ -3434,7 +3438,50 @@ uniqueID_out:
     mov rcx, rbx                # Put num in right spot
     mov rbx, [rip+output_list]  # Using output_list
     call uniqueID               # Get updated list
-    mov [rip+output_list], rax  # output_list = uniqueID(s, output_list, num)
+    mov rbx, rax                # output_list = uniqueID(s, output_list, num)
+    lea rax, [rip+uniqueID_string_0] # Using "\n"
+    call emit                   # finish reference
+    mov [rip+output_list], rax  # update output_list
+    pop rcx                     # Restore RCX
+    pop rbx                     # Restore RBX
+    pop rax                     # Restore RAX
+    ret
+
+
+# uniqueID_label_out function
+# Receives char* S in RAX and char* num in RBX
+# Returns nothing
+uniqueID_label_out:
+    push rax                    # Protect RAX
+    push rbx                    # Protect RBX
+    push rcx                    # Protect RCX
+    mov rcx, rbx                # Put num in right spot
+    mov rbx, [rip+output_list]  # Using output_list
+    call uniqueID               # Get updated list
+    mov rbx, rax                # output_list = uniqueID(s, output_list, num)
+    lea rax, [rip+uniqueID_label_suffix] # Using ":\n"
+    call emit                   # finish label
+    mov [rip+output_list], rax  # update output_list
+    pop rcx                     # Restore RCX
+    pop rbx                     # Restore RBX
+    pop rax                     # Restore RAX
+    ret
+
+
+# uniqueID_bracket_out function
+# Receives char* S in RAX and char* num in RBX
+# Returns nothing
+uniqueID_bracket_out:
+    push rax                    # Protect RAX
+    push rbx                    # Protect RBX
+    push rcx                    # Protect RCX
+    mov rcx, rbx                # Put num in right spot
+    mov rbx, [rip+output_list]  # Using output_list
+    call uniqueID               # Get updated list
+    mov rbx, rax                # output_list = uniqueID(s, output_list, num)
+    lea rax, [rip+uniqueID_bracket_suffix] # Using "]\n"
+    call emit                   # finish reference
+    mov [rip+output_list], rax  # update output_list
     pop rcx                     # Restore RCX
     pop rbx                     # Restore RBX
     pop rax                     # Restore RAX
@@ -3585,16 +3632,6 @@ char2hex_string_0: .asciz "Tried to print non-hex number\n"
 parse_string:
     push rbx                    # Protect RBX
     mov rbx, rax                # Protect char* string
-    call weird                  # Determine if we have a weird string
-    cmp rax, 0                  # If weird
-    je parse_string_weird       # Deal with it
-
-    # Dealing with regular string
-    mov rax, rbx                # Passing Char* string
-    call collect_regular_string # Collect it
-    jmp parse_string_done       # Be done
-
-parse_string_weird:
     mov rax, rbx                # Passing Char* string
     call collect_weird_string   # Collect it
 
@@ -3739,13 +3776,28 @@ collect_weird_string:
     push rcx                    # Protect RCX
     push rdx                    # Protect RDX
     mov rdx, rax                # Protect our passed string
-    mov rax, 512                # We need 512bytes of storage
+    mov rax, 4096               # We need enough storage for hex bytes
     call malloc                 # Get our new pointer
     mov rcx, rax                # put it in place
     push rax                    # protect until done
 
-    mov rax, 39                 # Using "'"
-    mov [rcx], al               # hold_string[index] = "'"
+    mov rax, 46                 # Using '.'
+    mov [rcx], al               # hold_string[index] = '.'
+    add rcx, 1                  # Increment it
+    mov rax, 98                 # Using 'b'
+    mov [rcx], al               # hold_string[index] = 'b'
+    add rcx, 1                  # Increment it
+    mov rax, 121                # Using 'y'
+    mov [rcx], al               # hold_string[index] = 'y'
+    add rcx, 1                  # Increment it
+    mov rax, 116                # Using 't'
+    mov [rcx], al               # hold_string[index] = 't'
+    add rcx, 1                  # Increment it
+    mov rax, 101                # Using 'e'
+    mov [rcx], al               # hold_string[index] = 'e'
+    add rcx, 1                  # Increment it
+    mov rax, 32                 # Using ' '
+    mov [rcx], al               # hold_string[index] = ' '
     add rcx, 1                  # Increment it
     add rdx, 1                  # Increment it
 collect_weird_string_reset:
@@ -3754,13 +3806,23 @@ collect_weird_string_reset:
     cmp rax, 0                  # IF NULL == string[0]
     je collect_weird_string_done # Be done
 
-    mov rax, 32                 # Using ' '
-    mov [rcx], al               # hold_string[index] = ' '
+    mov rax, 48                 # Using '0'
+    mov [rcx], al               # hold_string[index] = '0'
+    add rcx, 1                  # Increment it
+    mov rax, 120                # Using 'x'
+    mov [rcx], al               # hold_string[index] = 'x'
     add rcx, 1                  # Increment it
 
     mov rax, rdx                # Using string
     call escape_lookup          # Get the char
     call hex8                   # Update RCX
+
+    mov rax, 44                 # Using ','
+    mov [rcx], al               # hold_string[index] = ','
+    add rcx, 1                  # Increment it
+    mov rax, 32                 # Using ' '
+    mov [rcx], al               # hold_string[index] = ' '
+    add rcx, 1                  # Increment it
 
     mov al, [rdx]               # Read a byte
     movzx rax, al               # Make it useful
@@ -3778,16 +3840,8 @@ collect_weird_string_reset:
     jmp collect_weird_string_reset # Keep going
 
 collect_weird_string_done:
-    mov rax, 32                 # Using ' '
-    mov [rcx], al               # hold_string[index] = ' '
-    add rcx, 1                  # Increment it
     mov rax, 48                 # Using '0'
     mov [rcx], al               # hold_string[index] = '0'
-    add rcx, 1                  # Increment it
-    mov [rcx], al               # hold_string[index] = '0'
-    add rcx, 1                  # Increment it
-    mov rax, 39                 # Using "'"
-    mov [rcx], al               # hold_string[index] = "'"
     add rcx, 1                  # Increment it
     mov rax, 10                 # Using "\n"
     mov [rcx], al               # hold_string[index] = '\n'
