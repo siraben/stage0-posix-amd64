@@ -255,11 +255,15 @@ get_token_comment:
     mov [rip+C], rax            # Set C
 get_token_comment_block_outer:
     mov rax, [rip+C]            # Using C
+    cmp rax, -4                 # Check for EOF
+    je reset                    # be done
     cmp rax, 47                 # IF '/' != C
     je get_token_comment_block_done # be done
 
 get_token_comment_block_inner:
     mov rax, [rip+C]            # Using C
+    cmp rax, -4                 # Check for EOF
+    je reset                    # be done
     cmp rax, 42                 # IF '*' != C
     je get_token_comment_block_iter # jump over
 
@@ -388,8 +392,11 @@ strings: .byte 34, 39, 0
 # returns line feed
 purge_macro:
     call fgetc                  # read next char
+    cmp rax, -4                 # Check for EOF
+    je purge_macro_done         # Done if EOF
     cmp rax, 10                 # Check for '\n'
     jne purge_macro             # Keep going
+purge_macro_done:
     ret
 
 
@@ -479,6 +486,8 @@ consume_word_escape:
 
 consume_word_iter:
     call consume_byte           # read next char
+    cmp rax, -4                 # Check for EOF
+    je consume_word_done        # Stop if the string was not closed
 
     cmp rcx, 0                  # IF ESCAPE
     jne consume_word_loop       # keep looping
@@ -487,6 +496,7 @@ consume_word_iter:
     jne consume_word_loop       # keep going
 
     call fgetc                  # return next char
+consume_word_done:
     pop rcx                     # Restore RCX
     pop rbx                     # Restore RBX
     ret
@@ -683,6 +693,8 @@ new_type:
 
 enumerator:
     mov rax, [rip+global_token]           # Using global token
+    cmp rax, 0                            # Check for EOF
+    je Exit_Failure                       # Missing enumerator
     mov rax, [rax+16]                     # global_token->s
     mov rbx, 0                            # NULL
     mov rcx, [rip+global_constant_list]   # global_constant_list
@@ -698,12 +710,16 @@ enumerator:
     call require_match                    # Require match and skip
 
     mov rbx, [rip+global_token]           # Using global_token
+    cmp rbx, 0                            # Check for EOF
+    je Exit_Failure                       # Missing enumerator value
     mov rax, [rip+global_constant_list]   # Use global_constant_list
     mov [rax+32], rbx                     # global_constant_list->arguments = global_token
 
     mov rax, [rip+global_token]           # Using global_token
     mov rax, [rax]                        # global_token->next
     mov [rip+global_token], rax           # global_token = global_token->next
+    cmp rax, 0                            # Check for EOF
+    je enum_end                           # Missing } will be reported below
 
     mov rax, [rip+global_token]           # Use global_token
     mov rbx, [rax+16]                     # global_token->s
@@ -716,6 +732,8 @@ enumerator:
     mov rax, [rip+global_token]           # Using global_token
     mov rax, [rax]                        # global_token->next
     mov [rip+global_token], rax           # global_token = global_token->next
+    cmp rax, 0                            # Check for EOF
+    je enum_end                           # Missing } will be reported below
 
     # Check if there are more enumerators or if it was a trailing comma
     mov rbx, [rax+16]                     # global_token->s
@@ -739,6 +757,9 @@ program_else:
     call type_name              # Figure out the type_size
     cmp rax, 0                  # IF NULL == type_size
     je new_type                 # it was a new type
+    mov rbx, [rip+global_token] # Using global_token
+    cmp rbx, 0                  # Check for EOF
+    je program_error            # Missing declarator
 
     # Add to global symbol table
     mov rbx, rax                # put type_size in the right spot
@@ -750,6 +771,8 @@ program_else:
     mov rbx, [rip+global_token] # Using global token
     mov rbx, [rbx]              # global_token->next
     mov [rip+global_token], rbx # global_token = global_token->next
+    cmp rbx, 0                  # Check for EOF
+    je program_error            # Missing ; or function body
 
     mov rbx, [rip+global_token] # Using global token
     mov rbx, [rbx+16]           # global_token->S
@@ -793,6 +816,7 @@ program_function:
 
 program_error:
     # Deal with the case of something we don't support
+    jmp Exit_Failure            # Abort
 
 program_done:
     pop rcx                     # Restore RCX
@@ -825,6 +849,8 @@ declare_function:
     call collect_arguments      # collect all of the function arguments
 
     mov rax, [rip+global_token] # Using global token
+    cmp rax, 0                  # Check for EOF
+    je Exit_Failure             # Missing prototype ; or body
     mov rax, [rax+16]           # global token->s
     lea rbx, [rip+semicolon]    # ";"
     call match                  # IF global token->s == ";"
@@ -893,6 +919,8 @@ collect_arguments:
     mov [rip+global_token], rax # global_token = global_token->next
 collect_arguments_loop:
     mov rbx, [rip+global_token] # Using global_token
+    cmp rbx, 0                  # Check for EOF
+    je Exit_Failure             # Missing )
     mov rbx, [rbx+16]           # global_token->S
     lea rax, [rip+close_paren]  # ")"
     call match                  # IF global_token->S == ")"
@@ -902,6 +930,9 @@ collect_arguments_loop:
     # deal with the case of there are arguments
     call type_name              # Get the type
     mov rcx, rax                # put type_size safely out of the way
+    mov rbx, [rip+global_token] # Using global_token
+    cmp rbx, 0                  # Check for EOF
+    je Exit_Failure             # Missing argument or )
 
     mov rbx, [rip+global_token] # Using global_token
     mov rbx, [rbx+16]           # global_token->S
@@ -955,6 +986,8 @@ collect_arguments_next:
 
 collect_arguments_common:
     mov rbx, [rip+global_token] # Using global_token
+    cmp rbx, 0                  # Check for EOF
+    je Exit_Failure             # Missing )
     mov rbx, [rbx+16]           # global_token->S
     lea rax, [rip+comma]        # ","
     call match                  # IF global_token->S == ","
@@ -965,6 +998,8 @@ collect_arguments_common:
     mov rax, [rip+global_token] # Using global_token
     mov rax, [rax]              # global_token->next
     mov [rip+global_token], rax # global_token = global_token->next
+    cmp rax, 0                  # Check for EOF
+    je Exit_Failure             # Missing argument after comma
     jmp collect_arguments_loop  # keep going
 
 collect_arguments_done:
@@ -985,6 +1020,8 @@ statement:
     push rcx                    # Protect RCX
 
     mov rbx, [rip+global_token] # Using global_token
+    cmp rbx, 0                  # Check for EOF
+    je Exit_Failure             # Missing statement
     mov rbx, [rbx+16]           # global_token->S
     lea rax, [rip+open_curly_brace] # "{"
     call match                  # IF global_token->S == "{"
@@ -1094,6 +1131,8 @@ statement_goto:
     mov rax, [rip+global_token] # Using global_token
     mov rax, [rax]              # global_token->next
     mov [rip+global_token], rax # global_token = global_token->next
+    cmp rax, 0                  # IF we hit EOF
+    je Exit_Failure             # Abort hard
 
     mov rax, [rax+16]           # global_token->S
     call emit_out               # emit it
@@ -1185,6 +1224,8 @@ recursive_statement:
 
 recursive_statement_loop:
     mov rbx, [rip+global_token] # Using global_token
+    cmp rbx, 0                  # Check for EOF
+    je Exit_Failure             # Missing }
     mov rbx, [rbx+16]           # global_token->S
     lea rax, [rip+close_curly_brace] # Using "}"
     call match                  # IF global_token->S == "}"
@@ -1243,6 +1284,8 @@ return_result:
     mov rax, [rip+global_token] # Using global_token
     mov rax, [rax]              # global_token->next
     mov [rip+global_token], rax # global_token = global_token->next
+    cmp rax, 0                  # Check for EOF
+    je return_result_cleanup    # Missing ; will be reported below
 
     mov rax, [rax+16]           # global_token->S
     mov al, [rax]               # global_token->S[0]
@@ -1292,6 +1335,8 @@ collect_local:
 
     mov rbx, rax                # Put struct type* type_size in the right place
     mov rax, [rip+global_token] # Using global_token
+    cmp rax, 0                  # Check for EOF
+    je Exit_Failure             # Missing local name
     mov rax, [rax+16]           # global_token->S
     mov rcx, [rip+function]     # Using function
     mov rcx, [rcx+8]            # function->locals
@@ -1374,6 +1419,8 @@ collect_local_common:
     mov rax, [rip+global_token] # Using global_token
     mov rax, [rax]              # global_token->NEXT
     mov [rip+global_token], rax # global_token = global_token->NEXT
+    cmp rax, 0                  # Check for EOF
+    je collect_local_done       # Missing ; will be reported below
 
     mov rbx, [rax+16]           # global_token->S
     lea rax, [rip+equal]        # Using "="
@@ -1429,6 +1476,8 @@ process_asm:
 
     mov rbx, [rip+global_token] # Using global_token
 process_asm_iter:
+    cmp rbx, 0                  # IF we hit EOF
+    je process_asm_done         # report the missing close paren
     mov rax, [rbx+16]           # global_token->S
     mov al, [rax]               # global_token->S[0]
     movzx rax, al               # Make it useful
@@ -1527,6 +1576,8 @@ process_if:
     call uniqueID_out           # uniqueID_out(function->s, number_string)
 
     mov rbx, [rip+global_token] # Using global_token
+    cmp rbx, 0                  # Check for EOF
+    je process_if_done          # No else branch
     mov rbx, [rbx+16]           # global_token->S
     lea rax, [rip+else_string]  # Using "else"
     call match                  # IF global_token->S == "else"
@@ -1826,6 +1877,8 @@ process_for:
     call require_match          # Make Sure we have it
 
     mov rbx, [rip+global_token] # Using global_token
+    cmp rbx, 0                  # IF we hit EOF
+    je Exit_Failure             # Abort hard
     mov rbx, [rbx+16]           # global_token->S
     lea rax, [rip+semicolon]    # Using ";"
     call match                  # IF global_token->S == ";"
@@ -2025,6 +2078,8 @@ expression:
     call bitwise_expr           # Collect bitwise expressions
 
     mov rbx, [rip+global_token] # Using global_token
+    cmp rbx, 0                  # Check for EOF
+    je expression_done          # Nothing left to assign
     mov rbx, [rbx+16]           # global_token->S
     lea rax, [rip+equal]        # "="
     call match                  # IF global_token->S == "="
@@ -2297,6 +2352,8 @@ postfix_expr:
 postfix_expr_stub:
     push rbx                    # Protect RBX
     mov rbx, [rip+global_token] # Using global_token
+    cmp rbx, 0                  # Check for EOF
+    je postfix_expr_stub_done   # No postfix suffix
     mov rbx, [rbx+16]           # global_token->S
     lea rax, [rip+open_bracket] # Using "["
     call match                  # IF global_token->S == "["
@@ -2372,6 +2429,8 @@ postfix_expr_array:
     push rbx                    # Protect RBX
     push rcx                    # Protect RCX
     mov rax, [rip+current_target] # ARRAY = current_target
+    cmp rax, 0                  # Check for bad target
+    je Exit_Failure             # Cannot subscript unknown target
     push rax                    # Protect it
 
     lea rax, [rip+expression]   # Using expression
@@ -2399,6 +2458,8 @@ postfix_expr_array_large:
 
     mov rax, [rip+current_target] # Using current_target
     mov rax, [rax+24]           # current_target->INDIRECT
+    cmp rax, 0                  # IF target is not indexable
+    je Exit_Failure             # Abort hard
     mov rax, [rax+8]            # current_target->INDIRECT->SIZE
     call ceil_log2              # ceil_log2(current_target->indirect->size)
     call numerate_number        # numerate_number(ceil_log2(current_target->indirect->size))
@@ -2416,6 +2477,8 @@ postfix_expr_array_common:
     call require_match          # Make sure we have it
 
     mov rbx, [rip+global_token] # Using global_token
+    cmp rbx, 0                  # IF we hit EOF
+    je postfix_expr_array_done  # Treat it as not being an assignment
     mov rbx, [rbx+16]           # global_token->S
     lea rax, [rip+equal]        # Using "="
     call match                  # IF global_token->S == "="
@@ -2488,8 +2551,16 @@ postfix_expr_arrow:
     mov rax, [rip+global_token] # Using global_token
     mov rax, [rax]              # global_token->NEXT
     mov [rip+global_token], rax # global_token = global_token->NEXT
+    cmp rax, 0                  # IF we hit EOF
+    je Exit_Failure             # Abort hard
 
     mov rbx, [rax+16]           # Using global_token->S
+    mov rax, [rip+current_target] # Using current_target
+    cmp rax, 0                  # IF target is unknown
+    je Exit_Failure             # Abort hard
+    mov rax, [rax+32]           # current_target->MEMBERS
+    cmp rax, 0                  # IF target has no members
+    je Exit_Failure             # Abort hard
     mov rax, [rip+current_target] # Using current_target
     call lookup_member          # lookup_member(current_target, global_token->s)
     mov rbx, rax                # struct type* I = lookup_member(current_target, global_token->s)
@@ -2523,6 +2594,8 @@ postfix_expr_arrow_first:
 
     # Last chance for load
     mov rax, [rip+global_token] # Using global_token
+    cmp rax, 0                  # IF we hit EOF
+    je postfix_expr_arrow_load  # Treat it as not being an assignment
     mov rbx, [rax+16]           # global_token->S
     lea rax, [rip+equal]        # Using "="
     call match                  # IF global_token->S == "="
@@ -2530,6 +2603,7 @@ postfix_expr_arrow_first:
     je postfix_expr_arrow_done  # Be done
 
     # Deal with load case
+postfix_expr_arrow_load:
     lea rax, [rip+postfix_expr_arrow_string_3] # Using "mov_rax,[rax]\n"
     call emit_out               # Emit it
 
@@ -2550,6 +2624,8 @@ primary_expr:
     push rbx                    # Protect RBX
 
     mov rax, [rip+global_token] # Using global_token
+    cmp rax, 0                  # Check for EOF
+    je Exit_Failure             # Missing expression
     mov rbx, [rax+16]           # global_token->S
     lea rax, [rip+sizeof_string] # Using "sizeof"
     call match                  # See if match
@@ -2825,6 +2901,8 @@ function_call:
     call emit_out               # Emit it
 
     mov rax, [rip+global_token] # Using global_token
+    cmp rax, 0                  # Check for EOF
+    je function_call_gen_done   # Missing ) will be reported below
     mov rax, [rax+16]           # global_token->S
     mov al, [rax]               # global_token->S[0]
     movzx rax, al               # Make it useful
@@ -2840,6 +2918,8 @@ function_call:
 
 function_call_gen_iter:
     mov rax, [rip+global_token] # Using global_token
+    cmp rax, 0                  # Check for EOF
+    je function_call_gen_done   # Missing ) will be reported below
     mov rax, [rax+16]           # global_token->S
     mov al, [rax]               # global_token->S[0]
     movzx rax, al               # Make it useful
@@ -2953,6 +3033,8 @@ variable_load:
     mov rcx, rax                # Protect A
 
     mov rbx, [rip+global_token] # Using global_token
+    cmp rbx, 0                  # Check for EOF
+    je variable_load_regular    # EOF means not a call
     mov rbx, [rbx+16]           # global_token->S
     lea rax, [rip+open_paren]   # Using "("
     call match                  # IF global_token->S == "("
@@ -2989,6 +3071,8 @@ variable_load_regular:
 
     # Check for special case of assignment
     mov rbx, [rip+global_token] # Using global_token
+    cmp rbx, 0                  # Check for EOF
+    je variable_load_value      # EOF means not an assignment
     mov rbx, [rbx+16]           # global_token->S
     lea rax, [rip+equal]        # Using "="
     call match                  # IF global_token->S == "="
@@ -2996,6 +3080,7 @@ variable_load_regular:
     je variable_load_done       # And be done
 
     # Deal with common case
+variable_load_value:
     lea rax, [rip+variable_load_string_2] # Using "mov_rax,[rax]\n"
     call emit_out               # Emit it
 
@@ -3019,6 +3104,8 @@ function_load:
     mov rax, [rax+16]           # A->S
     mov rcx, rax                # Protect A->S
     mov rbx, [rip+global_token] # Using global_token
+    cmp rbx, 0                  # Check for EOF
+    je function_load_regular    # EOF means not a call
     mov rbx, [rbx+16]           # global_token->S
     lea rax, [rip+open_paren]   # Using "("
     call match                  # IF global_token->S == "("
@@ -3072,6 +3159,8 @@ global_load:
     call emit_out               # Emit it
 
     mov rbx, [rip+global_token] # Using global_token
+    cmp rbx, 0                  # Check for EOF
+    je global_load_value        # EOF means this is not an assignment
     mov rbx, [rbx+16]           # global_token->S
     lea rax, [rip+equal]        # "="
     call match                  # IF global_token->S == "="
@@ -3079,6 +3168,7 @@ global_load:
     je global_load_done         # and be done
 
     # Otherwise we are loading the contents
+global_load_value:
     lea rax, [rip+global_load_string_2] # Using "mov_rax,[rax]\n"
     call emit_out               # Emit it
 
@@ -3265,6 +3355,8 @@ general_recursion:
     mov rcx, rbx                # Protect S
 
     mov rbx, [rip+global_token] # Using global_token
+    cmp rbx, 0                  # Check for EOF
+    je general_recursion_done   # Nothing left to match
     mov rbx, [rbx+16]           # global_token->S
     call match                  # IF match(name, global_token->s)
     cmp rax, 0                  # If true we do
@@ -3380,11 +3472,14 @@ require_match:
     push rcx                    # Protect RCX
     mov rcx, rax                # put the message somewhere safe
     mov rax, [rip+global_token] # Using global_token
+    cmp rax, 0                  # Check for EOF
+    je require_match_bad        # Missing required token
     mov rax, [rax+16]           # global_token->S
     call match                  # IF required == global_token->S
     cmp rax, 0                  # we are fine
     je require_match_good       # otherwise pain
 
+require_match_bad:
     # Deal with bad times
 #    call line_error             # Tell user what went wrong
     mov r14, 2                  # write to standard error
@@ -3827,6 +3922,8 @@ type_name:
     push rbx                    # Protect RBX
     push rcx                    # Protect RCX
     mov rbx, [rip+global_token] # Using global_token
+    cmp rbx, 0                  # IF we hit EOF
+    je Exit_Failure             # Abort hard
     mov rbx, [rbx+16]           # global_token->S
     lea rax, [rip+struct]       # Using "struct"
     call match                  # IF global_token->S == "struct"
@@ -3838,6 +3935,8 @@ type_name:
     mov rbx, [rip+global_token] # Using global_token
     mov rbx, [rbx]              # global_token->next
     mov [rip+global_token], rbx # global_token = global_token->next
+    cmp rbx, 0                  # IF we hit EOF
+    je Exit_Failure             # Abort hard
     mov rax, [rbx+16]           # global_token->S
     mov rbx, [rip+global_types] # get all known types
     call lookup_type            # Find type if possible
@@ -3882,6 +3981,8 @@ type_name_common:
     mov [rip+global_token], rbx # global_token = global_token->next
 
 type_name_iter:
+    cmp rbx, 0                  # Check for EOF
+    je type_name_done           # No more pointer qualifiers
     mov rax, [rbx+16]           # global_token->S
     mov al, [rax]               # global_token->S[0]
     movzx rax, al               # make it useful
@@ -3965,6 +4066,10 @@ create_struct:
 
     mov [rdx+24], rbp           # HEAD->INDIRECT = I
     mov [rbp+24], rdx           # I->INDIRECT = HEAD
+    mov rax, rdx                # HEAD
+    mov [rdx+40], rax           # HEAD->TYPE = HEAD
+    mov rax, rbp                # I
+    mov [rbp+40], rax           # I->TYPE = I
 
     mov rax, [rip+global_types] # Using global_types
     mov [rdx], rax              # HEAD->NEXT = global_types
@@ -3985,6 +4090,8 @@ create_struct:
 
 create_struct_iter:
     mov rax, [rip+global_token] # Using global_token
+    cmp rax, 0                  # IF we hit EOF
+    je Exit_Failure             # Abort hard
     mov rax, [rax+16]           # global_token->S
     mov al, [rax]               # global_token->S[0]
     movzx rax, al               # Make it useful
@@ -4103,10 +4210,14 @@ build_member:
     mov rcx, rax                # Put in place
     mov [rdx+40], rcx           # I->TYPE = MEMBER_TYPE
     mov rax, [rip+global_token] # Using global_token
+    cmp rax, 0                  # IF we hit EOF
+    je Exit_Failure             # Abort hard
     mov rbx, [rax+16]           # global_token->S
     mov [rdx+48], rbx           # I->NAME = global_token->S
     mov rax, [rax]              # global_token->NEXT
     mov [rip+global_token], rax # global_token = global_token->NEXT
+    cmp rax, 0                  # IF we hit EOF
+    je build_member_non_array   # Let the caller report the missing semicolon
 
     # Check if we have an array
     mov rbx, [rax+16]           # global_token->S
@@ -4116,6 +4227,7 @@ build_member:
     je build_member_array       # So deal with that pain
 
     # Deal with non-array case
+build_member_non_array:
     mov rax, [rcx+8]            # member_type->SIZE
     mov [rdx+8], rax            # I->SIZE = member_type->SIZE
     jmp build_member_done       # Be done
@@ -4124,6 +4236,8 @@ build_member_array:
     mov rax, [rip+global_token] # Using global_token
     mov rax, [rax]              # global_token->NEXT
     mov [rip+global_token], rax # global_token = global_token->NEXT
+    cmp rax, 0                  # IF we hit EOF
+    je Exit_Failure             # Abort hard
 
     mov rax, [rax+16]           # global_token->S
     call numerate_string        # convert number
