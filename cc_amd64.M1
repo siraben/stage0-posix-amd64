@@ -441,11 +441,15 @@ DEFINE NULL 0000000000000000
     mov_[rip+DWORD],rax %C       # Set C
 :get_token_comment_block_outer
     mov_rax,[rip+DWORD] %C       # Using C
+    cmp_rax, %-4                 # Check for EOF
+    je %reset                    # be done
     cmp_rax, %47                 # IF '/' != C
     je %get_token_comment_block_done # be done
 
 :get_token_comment_block_inner
     mov_rax,[rip+DWORD] %C       # Using C
+    cmp_rax, %-4                 # Check for EOF
+    je %reset                    # be done
     cmp_rax, %42                 # IF '*' != C
     je %get_token_comment_block_iter # jump over
 
@@ -579,8 +583,11 @@ DEFINE NULL 0000000000000000
 # returns line feed
 :purge_macro
     call %fgetc                  # read next char
+    cmp_rax, %-4                 # Check for EOF
+    je %purge_macro_done         # Done if EOF
     cmp_rax, %10                 # Check for '\n'
     jne %purge_macro             # Keep going
+:purge_macro_done
     ret
 
 
@@ -670,6 +677,8 @@ DEFINE NULL 0000000000000000
 
 :consume_word_iter
     call %consume_byte           # read next char
+    cmp_rax, %-4                 # Check for EOF
+    je %consume_word_done        # Stop if the string was not closed
 
     cmp_rcx, %0                  # IF ESCAPE
     jne %consume_word_loop       # keep looping
@@ -678,6 +687,7 @@ DEFINE NULL 0000000000000000
     jne %consume_word_loop       # keep going
 
     call %fgetc                  # return next char
+:consume_word_done
     pop_rcx                      # Restore RCX
     pop_rbx                      # Restore RBX
     ret
@@ -888,6 +898,8 @@ Expected ;
 
 :enumerator
     mov_rax,[rip+DWORD] %global_token           # Using global token
+    cmp_rax, %0                                 # Check for EOF
+    je %Exit_Failure                            # Missing enumerator
     mov_rax,[rax+BYTE] !16                      # global_token->S
     mov_rbx, %0                                 # NULL
     mov_rcx,[rip+DWORD] %global_constant_list   # global_constant_list
@@ -903,12 +915,16 @@ Expected ;
     call %require_match                         # Require match and skip
 
     mov_rbx,[rip+DWORD] %global_token           # Using global_token
+    cmp_rbx, %0                                 # Check for EOF
+    je %Exit_Failure                            # Missing enumerator value
     mov_rax,[rip+DWORD] %global_constant_list   # Use global_constant_list
     mov_[rax+BYTE],rbx !32                      # global_constant_list->arguments = global_token->next
 
     mov_rax,[rip+DWORD] %global_token           # Using global_token
     mov_rax,[rax]                               # global_token->next
     mov_[rip+DWORD],rax %global_token           # global_token = global_token->next
+    cmp_rax, %0                                 # Check for EOF
+    je %enum_end                                # Missing } will be reported below
 
     mov_rbx,[rip+DWORD] %global_token           # Use global_token
     mov_rbx,[rax+BYTE] !16                      # global_token->s
@@ -921,6 +937,8 @@ Expected ;
     mov_rax,[rip+DWORD] %global_token           # Using global_token
     mov_rax,[rax]                               # global_token->next
     mov_[rip+DWORD],rax %global_token           # global_token = global_token->next
+    cmp_rax, %0                                 # Check for EOF
+    je %enum_end                                # Missing } will be reported below
 
     # Check if there are more enumerators or if it was a trailing comma
     mov_rbx,[rax+BYTE] !16                      # global_token->s
@@ -944,6 +962,9 @@ Expected ;
     call %type_name                           # Figure out the type_size
     cmp_rax, %0                               # IF NULL == type_size
     je %new_type                              # it was a new type
+    mov_rbx,[rip+DWORD] %global_token         # Using global_token
+    cmp_rbx, %0                               # Check for EOF
+    je %program_error                         # Missing declarator
 
     # Add to global symbol table
     mov_rbx,rax                               # put type_size in the right spot
@@ -955,6 +976,8 @@ Expected ;
     mov_rbx,[rip+DWORD] %global_token         # Using global token
     mov_rbx,[rbx]                             # global_token->next
     mov_[rip+DWORD],rbx %global_token         # global_token = global_token->next
+    cmp_rbx, %0                               # Check for EOF
+    je %program_error                         # Missing ; or function body
 
     mov_rbx,[rip+DWORD] %global_token         # Using global token
     mov_rbx,[rbx+BYTE] !16                    # global_token->S
@@ -998,6 +1021,7 @@ Expected ;
 
 :program_error
     # Deal with the case of something we don't support
+    jmp %Exit_Failure                         # Abort
 
 :program_done
     pop_rcx                                   # Restore RCX
@@ -1035,6 +1059,8 @@ NULL
     call %collect_arguments                   # collect all of the function arguments
 
     mov_rax,[rip+DWORD] %global_token         # Using global token
+    cmp_rax, %0                               # Check for EOF
+    je %Exit_Failure                          # Missing prototype ; or body
     mov_rax,[rax+BYTE] !16                    # global token->s
     lea_rbx,[rip+DWORD] %semicolon            # ";"
     call %match                               # IF global token->s == ";"
@@ -1113,6 +1139,8 @@ NULL
     mov_[rip+DWORD],rax %global_token         # global_token = global_token->next
 :collect_arguments_loop
     mov_rbx,[rip+DWORD] %global_token         # Using global_token
+    cmp_rbx, %0                               # Check for EOF
+    je %Exit_Failure                          # Missing )
     mov_rbx,[rbx+BYTE] !16                    # global_token->S
     lea_rax,[rip+DWORD] %close_paren          # ")"
     call %match                               # IF global_token->S == ")"
@@ -1122,8 +1150,13 @@ NULL
     # deal with the case of there are arguments
     call %type_name                           # Get the type
     mov_rcx,rax                               # put type_size safely out of the way
+    mov_rbx,[rip+DWORD] %global_token         # Using global_token
+    cmp_rbx, %0                               # Check for EOF
+    je %Exit_Failure                          # Missing argument or )
 
     mov_rbx,[rip+DWORD] %global_token         # Using global_token
+    cmp_rbx, %0                               # Check for EOF
+    je %Exit_Failure                          # Missing statement
     mov_rbx,[rbx+BYTE] !16                    # global_token->S
     lea_rax,[rip+DWORD] %close_paren          # ")"
     call %match                               # IF global_token->S == ")"
@@ -1175,6 +1208,8 @@ NULL
 
 :collect_arguments_common
     mov_rbx,[rip+DWORD] %global_token         # Using global_token
+    cmp_rbx, %0                               # Check for EOF
+    je %Exit_Failure                          # Missing )
     mov_rbx,[rbx+DWORD] !16                   # global_token->S
     lea_rax,[rip+DWORD] %comma                # ","
     call %match                               # IF global_token->S == ","
@@ -1185,6 +1220,8 @@ NULL
     mov_rax,[rip+DWORD] %global_token         # Using global_token
     mov_rax,[rax]                             # global_token->next
     mov_[rip+DWORD],rax %global_token         # global_token = global_token->next
+    cmp_rax, %0                               # Check for EOF
+    je %Exit_Failure                          # Missing argument after comma
     jmp %collect_arguments_loop               # keep going
 
 :collect_arguments_done
@@ -1205,6 +1242,8 @@ NULL
     push_rcx                                  # Protect RCX
 
     mov_rbx,[rip+DWORD] %global_token         # Using global_token
+    cmp_rbx, %0                               # Check for EOF
+    je %Exit_Failure                          # Missing statement
     mov_rbx,[rbx+BYTE] !16                    # global_token->S
     lea_rax,[rip+DWORD] %open_curly_brace     # "{"
     call %match                               # IF global_token->S == "{"
@@ -1314,6 +1353,8 @@ NULL
     mov_rax,[rip+DWORD] %global_token         # Using global_token
     mov_rax,[rax]                             # global_token->next
     mov_[rip+DWORD],rax %global_token         # global_token = global_token->next
+    cmp_rax, %0                               # IF we hit EOF
+    je %Exit_Failure                          # Abort hard
 
     mov_rax,[rax+BYTE] !16                    # global_token->S
     call %emit_out                            # emit it
@@ -1420,6 +1461,8 @@ Missing ;
 
 :recursive_statement_loop
     mov_rbx,[rip+DWORD] %global_token         # Using global_token
+    cmp_rbx, %0                               # Check for EOF
+    je %Exit_Failure                          # Missing }
     mov_rbx,[rbx+BYTE] !16                    # global_token->S
     lea_rax,[rip+DWORD] %close_curly_brace    # Using "}"
     call %match                               # IF global_token->S == "}"
@@ -1483,6 +1526,8 @@ Missing ;
     mov_rax,[rip+DWORD] %global_token         # Using global_token
     mov_rax,[rax]                             # global_token->next
     mov_[rip+DWORD],rax %global_token         # global_token = global_token->next
+    cmp_rax, %0                               # Check for EOF
+    je %return_result_cleanup                 # Missing ; will be reported below
 
     mov_rax,[rax+BYTE] !16                    # global_token->S
     mov_al,[rax]                              # global_token->S[0]
@@ -1541,6 +1586,8 @@ MISSING ;
 
     mov_rbx,rax                               # Put struct type* type_size in the right place
     mov_rax,[rip+DWORD] %global_token         # Using global_token
+    cmp_rax, %0                               # Check for EOF
+    je %Exit_Failure                          # Missing local name
     mov_rax,[rax+BYTE] !16                    # global_token->S
     mov_rcx,[rip+DWORD] %function             # Using function
     mov_rcx,[rcx+BYTE] !8                     # function->locals
@@ -1623,6 +1670,8 @@ MISSING ;
     mov_rax,[rip+DWORD] %global_token         # Using global_token
     mov_rax,[rax]                             # global_token->NEXT
     mov_[rip+DWORD],rax %global_token         # global_token = global_token->NEXT
+    cmp_rax, %0                               # Check for EOF
+    je %collect_local_done                    # Missing ; will be reported below
 
     mov_rbx,[rax+BYTE] !16                    # global_token->S
     lea_rax,[rip+DWORD] %equal                # Using "="
@@ -1688,6 +1737,8 @@ Missing ;
 
     mov_rbx,[rip+DWORD] %global_token         # Using global_token
 :process_asm_iter
+    cmp_rbx, %0                               # IF we hit EOF
+    je %process_asm_done                      # report the missing close paren
     mov_rax,[rbx+BYTE] !16                    # global_token->S
     mov_al,[rax]                              # global_token->S[0]
     movzx_rax,al                              # Make it useful
@@ -1801,6 +1852,8 @@ MISSING ;
     call %uniqueID_out                        # uniqueID_out(function->s, number_string)
 
     mov_rbx,[rip+DWORD] %global_token         # Using global_token
+    cmp_rbx, %0                               # Check for EOF
+    je %process_if_done                       # No else branch
     mov_rbx,[rbx+BYTE] !16                    # global_token->S
     lea_rax,[rip+DWORD] %else_string          # Using "else"
     call %match                               # IF global_token->S == "else"
@@ -2162,6 +2215,8 @@ MISSING )
     call %require_match                       # Make Sure we have it
 
     mov_rbx,[rip+DWORD] %global_token         # Using global_token
+    cmp_rbx, %0                               # IF we hit EOF
+    je %Exit_Failure                          # Abort hard
     mov_rbx,[rbx+BYTE] !16                    # global_token->S
     lea_rax,[rip+DWORD] %semicolon            # Using ";"
     call %match                               # IF global_token->S == ";"
@@ -2410,6 +2465,8 @@ Missing ;
     call %bitwise_expr                        # Collect bitwise expressions
 
     mov_rbx,[rip+DWORD] %global_token         # Using global_token
+    cmp_rbx, %0                               # Check for EOF
+    je %expression_done                       # Nothing left to assign
     mov_rbx,[rbx+BYTE] !16                    # global_token->S
     lea_rax,[rip+DWORD] %equal                # "="
     call %match                               # IF global_token->S == "="
@@ -2754,6 +2811,8 @@ sar_rax,cl
 :postfix_expr_stub
     push_rbx                                  # Protect RBX
     mov_rbx,[rip+DWORD] %global_token         # Using global_token
+    cmp_rbx, %0                               # Check for EOF
+    je %postfix_expr_stub_done                # No postfix suffix
     mov_rbx,[rbx+BYTE] !16                    # global_token->S
     lea_rax,[rip+DWORD] %open_bracket         # Using "["
     call %match                               # IF global_token->S == "["
@@ -2841,6 +2900,8 @@ Missing )
     push_rbx                                  # Protect RBX
     push_rcx                                  # Protect RCX
     mov_rax,[rip+DWORD] %current_target       # ARRAY = current_target
+    cmp_rax, %0                               # Check for bad target
+    je %Exit_Failure                          # Cannot subscript unknown target
     push_rax                                  # Protect it
 
     lea_rax,[rip+DWORD] %expression           # Using expression
@@ -2868,6 +2929,8 @@ Missing )
 
     mov_rax,[rip+DWORD] %current_target       # Using current_target
     mov_rax,[rax+BYTE] !24                    # current_target->INDIRECT
+    cmp_rax, %0                               # IF target is not indexable
+    je %Exit_Failure                          # Abort hard
     mov_rax,[rax+BYTE] !8                     # current_target->INDIRECT->SIZE
     call %ceil_log2                           # ceil_log2(current_target->indirect->size)
     call %numerate_number                     # numerate_number(ceil_log2(current_target->indirect->size))
@@ -2885,6 +2948,8 @@ Missing )
     call %require_match                       # Make sure we have it
 
     mov_rbx,[rip+DWORD] %global_token         # Using global_token
+    cmp_rbx, %0                               # IF we hit EOF
+    je %postfix_expr_array_done               # Treat it as not being an assignment
     mov_rbx,[rbx+BYTE] !16                    # global_token->S
     lea_rax,[rip+DWORD] %equal                # Using "="
     call %match                               # IF global_token->S == "="
@@ -2976,8 +3041,16 @@ Missing ]
     mov_rax,[rip+DWORD] %global_token         # Using global_token
     mov_rax,[rax]                             # global_token->NEXT
     mov_[rip+DWORD],rax %global_token         # global_token = global_token->NEXT
+    cmp_rax, %0                               # IF we hit EOF
+    je %Exit_Failure                          # Abort hard
 
     mov_rbx,[rax+BYTE] !16                    # Using global_token->S
+    mov_rax,[rip+DWORD] %current_target       # Using current_target
+    cmp_rax, %0                               # IF target is unknown
+    je %Exit_Failure                          # Abort hard
+    mov_rax,[rax+BYTE] !32                    # current_target->MEMBERS
+    cmp_rax, %0                               # IF target has no members
+    je %Exit_Failure                          # Abort hard
     mov_rax,[rip+DWORD] %current_target       # Using current_target
     call %lookup_member                       # lookup_member(current_target, global_token->s)
     mov_rbx,rax                               # struct type* I = lookup_member(current_target, global_token->s)
@@ -3011,6 +3084,8 @@ Missing ]
 
     # Last chance for load
     mov_rax,[rip+DWORD] %global_token         # Using global_token
+    cmp_rax, %0                               # IF we hit EOF
+    je %postfix_expr_arrow_load               # Treat it as not being an assignment
     mov_rbx,[rax+BYTE] !16                    # global_token->S
     lea_rax,[rip+DWORD] %equal                # Using "="
     call %match                               # IF global_token->S == "="
@@ -3018,6 +3093,7 @@ Missing ]
     je %postfix_expr_arrow_done               # Be done
 
     # Deal with load case
+:postfix_expr_arrow_load
     lea_rax,[rip+DWORD] %postfix_expr_arrow_string_3 # Using "mov_rax,[rax]\n"
     call %emit_out                            # Emit it
 
@@ -3050,6 +3126,8 @@ add_rax,rbx
     push_rbx                                  # Protect RBX
 
     mov_rax,[rip+DWORD] %global_token         # Using global_token
+    cmp_rax, %0                               # Check for EOF
+    je %Exit_Failure                          # Missing expression
     mov_rbx,[rax+BYTE] !16                    # global_token->S
     lea_rax,[rip+DWORD] %sizeof_string        # Using "sizeof"
     call %match                               # See if match
@@ -3357,6 +3435,8 @@ Didn't get )
     call %emit_out                            # Emit it
 
     mov_rax,[rip+DWORD] %global_token         # Using global_token
+    cmp_rax, %0                               # Check for EOF
+    je %function_call_gen_done                # Missing ) will be reported below
     mov_rax,[rax+BYTE] !16                    # global_token->S
     mov_al,[rax]                              # global_token->S[0]
     movzx_rax,al                              # Make it useful
@@ -3372,6 +3452,8 @@ Didn't get )
 
 :function_call_gen_iter
     mov_rax,[rip+DWORD] %global_token         # Using global_token
+    cmp_rax, %0                               # Check for EOF
+    je %function_call_gen_done                # Missing ) will be reported below
     mov_rax,[rax+BYTE] !16                    # global_token->S
     mov_al,[rax]                              # global_token->S[0]
     movzx_rax,al                              # Make it useful
@@ -3533,6 +3615,8 @@ mov_rax,[rax]
     mov_rcx,rax                               # Protect A
 
     mov_rbx,[rip+DWORD] %global_token         # Using global_token
+    cmp_rbx, %0                               # Check for EOF
+    je %variable_load_regular                 # EOF means not a call
     mov_rbx,[rbx+BYTE] !16                    # global_token->S
     lea_rax,[rip+DWORD] %open_paren           # Using "("
     call %match                               # IF global_token->S == "("
@@ -3569,6 +3653,8 @@ mov_rax,[rax]
 
     # Check for special case of assignment
     mov_rbx,[rip+DWORD] %global_token         # Using global_token
+    cmp_rbx, %0                               # Check for EOF
+    je %variable_load_value                   # EOF means not an assignment
     mov_rbx,[rbx+BYTE] !16                    # global_token->S
     lea_rax,[rip+DWORD] %equal                # Using "="
     call %match                               # IF global_token->S == "="
@@ -3576,6 +3662,7 @@ mov_rax,[rax]
     je %variable_load_done                    # And be done
 
     # Deal with common case
+:variable_load_value
     lea_rax,[rip+DWORD] %variable_load_string_2 # Using "mov_rax,[rax]\n"
     call %emit_out                            # Emit it
 
@@ -3606,6 +3693,8 @@ mov_rax,[rax]
     mov_rax,[rax+BYTE] !16                    # A->S
     mov_rcx,rax                               # Protect A->S
     mov_rbx,[rip+DWORD] %global_token         # Using global_token
+    cmp_rbx, %0                               # Check for EOF
+    je %function_load_regular                 # EOF means not a call
     mov_rbx,[rbx+BYTE] !16                    # global_token->S
     lea_rax,[rip+DWORD] %open_paren           # Using "("
     call %match                               # IF global_token->S == "("
@@ -3663,6 +3752,8 @@ mov_rax,[rax]
     call %emit_out                            # Emit it
 
     mov_rbx,[rip+DWORD] %global_token         # Using global_token
+    cmp_rbx, %0                               # Check for EOF
+    je %global_load_value                     # EOF means this is not an assignment
     mov_rbx,[rbx+BYTE] !16                    # global_token->S
     lea_rax,[rip+DWORD] %equal                # "="
     call %match                               # IF global_token->S == "="
@@ -3670,6 +3761,7 @@ mov_rax,[rax]
     je %global_load_done                      # and be done
 
     # Otherwise we are loading the contents
+:global_load_value
     lea_rax,[rip+DWORD] %global_load_string_2 # Using "mov_rax,[rax]\n"
     call %emit_out                            # Emit it
 
@@ -3878,6 +3970,8 @@ mov_rax,[rax]
     mov_rcx,rbx                               # Protect S
 
     mov_rbx,[rip+DWORD] %global_token         # Using global_token
+    cmp_rbx, %0                               # Check for EOF
+    je %general_recursion_done                # Nothing left to match
     mov_rbx,[rbx+BYTE] !16                    # global_token->S
     call %match                               # IF match(name, global_token->s)
     cmp_rax, %0                               # If true we do
@@ -3998,11 +4092,14 @@ mov_rax,[rax]
     push_rcx                                  # Protect RCX
     mov_rcx,rax                               # put the message somewhere safe
     mov_rax,[rip+DWORD] %global_token         # Using global_token
+    cmp_rax, %0                               # Check for EOF
+    je %require_match_bad                     # Missing required token
     mov_rax,[rax+BYTE] !16                    # global_token->S
     call %match                               # IF required == global_token->S
     cmp_rax, %0                               # we are fine
     je %require_match_good                    # otherwise pain
 
+:require_match_bad
     # Deal with bad times
 #    call %line_error                          # Tell user what went wrong
     mov_r14, %2                               # write to standard error
@@ -4456,6 +4553,8 @@ mov_rax,[rax]
     push_rbx                                  # Protect RBX
     push_rcx                                  # Protect RCX
     mov_rbx,[rip+DWORD] %global_token         # Using global_token
+    cmp_rbx, %0                               # IF we hit EOF
+    je %Exit_Failure                          # Abort hard
     mov_rbx,[rbx+BYTE] !16                    # global_token->S
     lea_rax,[rip+DWORD] %struct               # Using "struct"
     call %match                               # IF global_token->S == "struct"
@@ -4467,6 +4566,8 @@ mov_rax,[rax]
     mov_rbx,[rip+DWORD] %global_token         # Using global_token
     mov_rbx,[rbx]                             # global_token->next
     mov_[rip+DWORD],rbx %global_token         # global_token = global_token->next
+    cmp_rbx, %0                               # IF we hit EOF
+    je %Exit_Failure                          # Abort hard
     mov_rax,[rbx+BYTE] !16                    # global_token->S
     mov_rbx,[rip+DWORD] %global_types         # get all known types
     call %lookup_type                         # Find type if possible
@@ -4511,6 +4612,8 @@ mov_rax,[rax]
     mov_[rip+DWORD],rbx %global_token         # global_token = global_token->next
 
 :type_name_iter
+    cmp_rbx, %0                               # Check for EOF
+    je %type_name_done                        # No more pointer qualifiers
     mov_rax,[rbx+BYTE] !16                    # global_token->S
     mov_al,[rax]                              # global_token->S[0]
     movzx_rax,al                              # make it useful
@@ -4598,6 +4701,10 @@ mov_rax,[rax]
 
     mov_[rdx+BYTE],rbp !24                    # HEAD->INDIRECT = I
     mov_[rbp+BYTE],rdx !24                    # I->INDIRECT = HEAD
+    mov_rax,rdx                               # HEAD
+    mov_[rdx+BYTE],rax !40                    # HEAD->TYPE = HEAD
+    mov_rax,rbp                               # I
+    mov_[rbp+BYTE],rax !40                    # I->TYPE = I
 
     mov_rax,[rip+DWORD] %global_types         # Using global_types
     mov_[rdx],rax                             # HEAD->NEXT = global_types
@@ -4618,6 +4725,8 @@ mov_rax,[rax]
 
 :create_struct_iter
     mov_rax,[rip+DWORD] %global_token         # Using global_token
+    cmp_rax, %0                               # IF we hit EOF
+    je %Exit_Failure                          # Abort hard
     mov_rax,[rax+BYTE] !16                    # global_token->S
     mov_al,[rax]                              # global_token->S[0]
     movzx_rax,al                              # Make it useful
@@ -4750,10 +4859,14 @@ mov_rax,[rax]
     mov_rcx,rax                               # Put in place
     mov_[rdx+BYTE],rcx !40                    # I->TYPE = MEMBER_TYPE
     mov_rax,[rip+DWORD] %global_token         # Using global_token
+    cmp_rax, %0                               # IF we hit EOF
+    je %Exit_Failure                          # Abort hard
     mov_rbx,[rax+BYTE] !16                    # global_token->S
     mov_[rdx+BYTE],rbx !48                    # I->NAME = global_token->S
     mov_rax,[rax]                             # global_token->NEXT
     mov_[rip+DWORD],rax %global_token         # global_token = global_token->NEXT
+    cmp_rax, %0                               # IF we hit EOF
+    je %build_member_non_array                # Let the caller report the missing semicolon
 
     # Check if we have an array
     mov_rbx,[rax+BYTE] !16                    # global_token->S
@@ -4763,6 +4876,7 @@ mov_rax,[rax]
     je %build_member_array                    # So deal with that pain
 
     # Deal with non-array case
+:build_member_non_array
     mov_rax,[rcx+BYTE] !8                     # member_type->SIZE
     mov_[rdx+BYTE],rax !8                     # I->SIZE = member_type->SIZE
     jmp %build_member_done                    # Be done
@@ -4771,6 +4885,8 @@ mov_rax,[rax]
     mov_rax,[rip+DWORD] %global_token         # Using global_token
     mov_rax,[rax]                             # global_token->NEXT
     mov_[rip+DWORD],rax %global_token         # global_token = global_token->NEXT
+    cmp_rax, %0                               # IF we hit EOF
+    je %Exit_Failure                          # Abort hard
 
     mov_rax,[rax+BYTE] !16                    # global_token->S
     call %numerate_string                     # convert number
